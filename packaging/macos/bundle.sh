@@ -26,8 +26,11 @@ if [[ -x "$bin_dir/lightforge" ]]; then
   chmod 755 "$app/Contents/MacOS/lightforge"
 fi
 
-iconset="$(mktemp -d)"
-trap 'rm -rf "$iconset"' EXIT
+scratch="$(mktemp -d)"
+trap 'rm -rf "$scratch"' EXIT
+# iconutil refuses a folder whose name does not end in `.iconset`.
+iconset="$scratch/Lightforge.iconset"
+mkdir -p "$iconset"
 icons="$root/packaging/icons/hicolor"
 cp "$icons/16x16/apps/pro.tuxcore.Lightforge.png" "$iconset/icon_16x16.png"
 cp "$icons/32x32/apps/pro.tuxcore.Lightforge.png" "$iconset/icon_32x32.png"
@@ -38,6 +41,9 @@ cp "$icons/256x256/apps/pro.tuxcore.Lightforge.png" "$iconset/icon_128x128@2x.pn
 cp "$icons/256x256/apps/pro.tuxcore.Lightforge.png" "$iconset/icon_256x256.png"
 cp "$icons/512x512/apps/pro.tuxcore.Lightforge.png" "$iconset/icon_256x256@2x.png"
 cp "$icons/512x512/apps/pro.tuxcore.Lightforge.png" "$iconset/icon_512x512.png"
+if command -v sips >/dev/null 2>&1; then
+  sips -z 1024 1024 "$icons/512x512/apps/pro.tuxcore.Lightforge.png" --out "$iconset/icon_512x512@2x.png" >/dev/null
+fi
 if command -v iconutil >/dev/null 2>&1; then
   iconutil --convert icns --output "$app/Contents/Resources/Lightforge.icns" "$iconset"
 else
