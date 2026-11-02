@@ -462,9 +462,8 @@ pub fn launch_binary(path: &Path) -> PathBuf {
 /// the error.
 pub fn game_executable(flavor_dir: &Path, name: &str) -> PathBuf {
     let expected = flavor_dir.join(name);
-    if is_launchable(&expected) {
-        return expected;
-    }
+    // Directory entry first: on a case-insensitive volume `expected` exists
+    // even when the file is spelled `Wow.exe` and the config said `WoW.exe`.
     let same_name = std::fs::read_dir(flavor_dir).ok().and_then(|entries| {
         entries.flatten().map(|e| e.path()).find(|p| {
             p.file_name()
@@ -474,6 +473,9 @@ pub fn game_executable(flavor_dir: &Path, name: &str) -> PathBuf {
     });
     if let Some(found) = same_name {
         return found;
+    }
+    if is_launchable(&expected) {
+        return expected;
     }
 
     std::fs::read_dir(flavor_dir)

@@ -511,7 +511,9 @@ mod tests {
             .join(format!("lightforge-discover-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        dir
+        // macOS `/var` is a symlink to `/private/var`; inspect() canonicalizes
+        // through dosdevices, so the fixture path has to as well.
+        dir.canonicalize().unwrap_or(dir)
     }
 
     fn record(product: &str, install_path: &str, family: &str) -> ProductInstall {

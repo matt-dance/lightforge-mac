@@ -667,7 +667,10 @@ mod tests {
         assert_eq!(extracted.folders, ["BigWigs"]);
         assert!(dir.join("BigWigs/BigWigs.toc").is_file());
         assert!(dir.join("BigWigs/core.lua").is_file(), "filed under the first spelling");
-        assert!(!dir.join("bigwigs").exists());
+        // `exists("bigwigs")` is true on a case-insensitive volume; the
+        // directory entry is what proves there is only one folder.
+        let names: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, ["BigWigs"]);
     }
 
     #[test]
