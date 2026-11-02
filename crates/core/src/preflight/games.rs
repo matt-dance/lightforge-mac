@@ -4,9 +4,10 @@ use std::time::{Duration, Instant};
 use sysinfo::{Signal, System};
 
 use super::scan::{
-    belongs_to, executable_name, is_cef_child_arg, is_windows_exe, owned_prefixes, refresh, scan,
-    ProcKind,
+    executable_name, is_cef_child_arg, is_windows_exe, refresh, scan, ProcKind,
 };
+#[cfg(not(target_os = "macos"))]
+use super::scan::{belongs_to, owned_prefixes};
 use super::shutdown::{signal_all, Disposition};
 use crate::paths::Layout;
 
