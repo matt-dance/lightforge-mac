@@ -150,8 +150,8 @@ pub(crate) enum Message {
     Primary,
     Tick,
     Downloaded(ProductCode, Result<Box<Complete>, Problem>),
-    /// logind's answer to [`tasks::keep_awake`].
-    KeptAwake(Result<Arc<std::os::fd::OwnedFd>, String>),
+    /// The desktop's answer to [`tasks::keep_awake`].
+    KeptAwake(Result<Arc<crate::tasks::SleepLock>, String>),
     CloseRequested(iced::window::Id),
     /// A launch ended without a game of its own to watch: the client was
     /// opened, the hand-off came to nothing, or it failed.

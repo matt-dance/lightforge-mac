@@ -333,11 +333,11 @@ pub(crate) async fn cdn_fetch(code: ProductCode, region: String, hash: Option<St
 
 // One parameter per command-line flag.
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn plan(dest: PathBuf, code: ProductCode, region: String, locale: String, flavor: String, cpu: Option<String>, explain: bool, optional: Vec<String>, limit_archives: Option<usize>, concurrency: usize) -> Result<()> {
+pub(crate) async fn plan(dest: PathBuf, code: ProductCode, region: String, locale: String, flavor: String, cpu: Option<String>, os: Option<String>, explain: bool, optional: Vec<String>, limit_archives: Option<usize>, concurrency: usize) -> Result<()> {
     use lightforge_core::net::Http;
     use lightforge_core::tact::explain as tact_explain;
     use lightforge_core::tact::storage::Storage;
-    use lightforge_core::tact::install::{self, Cpu, Event, Options as InstallOptions};
+    use lightforge_core::tact::install::{self, Cpu, Event, Options as InstallOptions, Os};
     use lightforge_core::tact::version::Region;
 
     let region: Region = region.parse().context("parsing --region")?;
@@ -347,11 +347,18 @@ pub(crate) async fn plan(dest: PathBuf, code: ProductCode, region: String, local
         Some("arm64" | "aarch64") => Cpu::Arm64,
         Some(other) => anyhow::bail!("unknown --cpu `{other}` (x86_64 or arm64)"),
     };
+    let os = match os.as_deref() {
+        None => Os::host(),
+        Some("windows" | "win") => Os::Windows,
+        Some("osx" | "mac" | "macos") => Os::Osx,
+        Some(other) => anyhow::bail!("unknown --os `{other}` (windows or osx)"),
+    };
     let gib = |b: u64| b as f64 / 1024f64.powi(3);
 
     let options = InstallOptions {
         region,
         cpu,
+        os,
         locale,
         flavor,
         concurrency,
@@ -380,6 +387,8 @@ pub(crate) async fn plan(dest: PathBuf, code: ProductCode, region: String, local
     let prepared =
         install::prepare(&http, &dest, &code, &options, &mut on_event).await?;
 
+    println!("tags            {}", prepared.tag_column);
+    println!("flavor          {}", prepared.flavor);
     match prepared.executable.as_deref() {
         // The selected install files are what lands in the flavor folder.
         Some(name) => {

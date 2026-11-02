@@ -2,10 +2,30 @@
 
 There's a package for Debian/Ubuntu, a COPR repository and a package for
 Fedora, a PKGBUILD for Arch, an installer for SteamOS, Bazzite and
-everything else, and an AppImage. You can also build it yourself: it's a Rust program with
+everything else, and an AppImage. This fork also ships a **macOS Apple
+Silicon** disk image. You can also build it yourself: it's a Rust program with
 very few dependencies, so that takes three commands and a few minutes.
 
-Everything below installs the same two binaries, the menu entry and the icons.
+Everything below installs the same two binaries, the menu entry and the icons
+(Linux) or a `.app` inside a DMG (macOS).
+
+## macOS (Apple Silicon)
+
+Download `Lightforge-*-arm64.dmg` from the
+[releases page](https://github.com/matt-dance/lightforge-mac/releases)
+(a draft until it is published). Open it, drag **Lightforge** to
+**Applications**, then start it.
+
+The CI build is ad-hoc signed, not notarized. The first time macOS may refuse
+to open it:
+
+- In Finder, right-click Lightforge → **Open** → **Open**, or
+- `xattr -dr com.apple.quarantine /Applications/Lightforge.app`
+
+Game files default to `~/Applications/World of Warcraft`. Lightforge's own
+data is under `~/Library/Application Support`. Play starts
+`World of Warcraft.app`; login is the in-game Battle.net window. Details:
+[packaging/macos/README.md](packaging/macos/README.md).
 
 ## Debian based (Debian, Ubuntu, Pop!_OS, Mint…)
 

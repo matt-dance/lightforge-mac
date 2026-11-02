@@ -175,29 +175,7 @@ impl Lightforge {
     /// The screenshot attached to a report.
     fn update_report_screenshot(&mut self, message: Message) -> Result<Task<Message>, Message> {
         Ok(match message {
-            Message::ReportShotPick => Task::perform(
-                // The XDG portal through `ashpd`: `rfd`'s `libdbus` call never
-                // returns in this process (it works from a test binary).
-                async {
-                    let request = ashpd::desktop::file_chooser::OpenFileRequest::default()
-                        .title("Choose a screenshot")
-                        .modal(true)
-                        .multiple(false)
-                        .filter(
-                            ashpd::desktop::file_chooser::FileFilter::new("Images")
-                                .mimetype("image/png")
-                                .mimetype("image/jpeg")
-                                .mimetype("image/webp")
-                                .mimetype("image/bmp"),
-                        );
-
-                    let files = request.send().await.ok()?.response().ok()?;
-                    // Cancel is an empty list. `to_file_path`: `path` is still
-                    // percent-encoded.
-                    files.uris().first().and_then(|uri| uri.to_file_path().ok())
-                },
-                Message::ReportShotPicked,
-            ),
+            Message::ReportShotPick => Task::perform(crate::pick::pick_image(), Message::ReportShotPicked),
 
             Message::ReportShotPicked(path) => {
                 // Cancelling is the common answer and means nothing happened.

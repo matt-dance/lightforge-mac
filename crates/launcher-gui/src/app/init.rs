@@ -269,9 +269,15 @@ impl Lightforge {
             tasks::game_families(self.layout.clone(), self.config.prefix_user.clone(), self.config.region),
             |families| Message::FamiliesRead(Box::new(families)),
         );
-        // Once: the flag is written when the wizard ends.
+        // Once: the flag is written when the wizard ends. macOS has no
+        // Proton/prefix to provision, so a first run goes straight to Play.
         if !self.config.setup_complete {
-            self.wizard = Some(wizard::Wizard::default());
+            if lightforge_core::host::is_macos() {
+                self.config.setup_complete = true;
+                self.save_config();
+            } else {
+                self.wizard = Some(wizard::Wizard::default());
+            }
         }
         // The splash is this art fetch; the wizard's first slide counts it.
         let artwork = self.open_splash();

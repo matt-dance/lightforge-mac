@@ -55,8 +55,16 @@ use wire::*;
 /// Agent's tag expression for a processor, region, locale and account.
 ///
 /// Both halves are identical but for the trailing `speech?` / `text?`.
-pub fn agent_tags(cpu: &str, region: &str, locale: &str, account: &str, geo: &str) -> String {
-    let mut common = format!("Windows {cpu} {}?", region.to_uppercase());
+/// `os` is `Windows` or `OSX`, matching the install's `.build.info`.
+pub fn agent_tags(
+    os: &str,
+    cpu: &str,
+    region: &str,
+    locale: &str,
+    account: &str,
+    geo: &str,
+) -> String {
+    let mut common = format!("{os} {cpu} {}?", region.to_uppercase());
     if !account.is_empty() {
         common.push_str(&format!(" acct-{account}?"));
     }
@@ -65,6 +73,17 @@ pub fn agent_tags(cpu: &str, region: &str, locale: &str, account: &str, geo: &st
     }
     common.push_str(&format!(" {locale}"));
     format!("{common} speech?:{common} text?")
+}
+
+/// The platform a tag expression names: `OSX` when present, else `Windows`.
+fn os_from_tags(tags: &str) -> &'static str {
+    match tags
+        .split([' ', ':'])
+        .any(|tag| tag.trim_end_matches('?') == "OSX")
+    {
+        true => "OSX",
+        false => "Windows",
+    }
 }
 
 /// The processor a tag expression names: `arm64` for Blizzard's ARM client,

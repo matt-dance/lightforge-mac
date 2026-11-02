@@ -35,6 +35,8 @@ pub struct Options {
     pub region: Region,
     /// Which of Blizzard's client builds to install; the host's by default.
     pub cpu: Cpu,
+    /// Which operating system's files to select (`Windows` or `OSX`).
+    pub os: Os,
     /// Client locale, e.g. `enUS`. Selects which of a build's files are wanted.
     pub locale: String,
     /// Optional content to opt in to, by tag name, e.g. `HighRes`. See
@@ -81,6 +83,7 @@ impl Default for Options {
         Self {
             region: Region::default(),
             cpu: Cpu::host(),
+            os: Os::host(),
             locale: "enUS".to_owned(),
             optional_tags: Vec::new(),
             flavor: String::new(),
@@ -95,7 +98,14 @@ impl Default for Options {
             limit_archives: None,
             limit_runs: None,
             skip_loose: false,
-            windows_path: Some(crate::paths::WINDOWS_WOW_PATH.to_owned()),
+            // Native macOS has no Wine prefix and no Agent product.db to
+            // register with. Linux still records the Windows path Agent
+            // matches the install by.
+            windows_path: if crate::host::is_macos() {
+                None
+            } else {
+                Some(crate::paths::WINDOWS_WOW_PATH.to_owned())
+            },
             agent_dir: None,
             account_country: String::new(),
             geo_country: String::new(),
@@ -112,14 +122,48 @@ impl Options {
     /// [`Options::tag_column`] for a locale other than the one asked for,
     /// see [`shipped_locale`].
     fn tag_column_for(&self, locale: &str) -> String {
-        let r = self.region.as_str().to_uppercase();
-        let cpu = self.cpu.tag();
-        format!("Windows {cpu} {r} {locale} speech:Windows {cpu} {r} {locale} text")
+        Self::tag_expression(self.os, self.cpu, self.region, locale)
+    }
+
+    /// The tag expression a `.build.info` carries for this OS, CPU, region
+    /// and locale. Shared by the planner after it may have fallen back from
+    /// `arm64` to `x86_64` on an OSX universal build.
+    pub(crate) fn tag_expression(os: Os, cpu: Cpu, region: Region, locale: &str) -> String {
+        let r = region.as_str().to_uppercase();
+        let cpu = cpu.tag();
+        let os = os.tag();
+        format!("{os} {cpu} {r} {locale} speech:{os} {cpu} {r} {locale} text")
     }
 
     /// True when any option truncates the plan.
     pub fn limited(&self) -> bool {
         self.limit_archives.is_some() || self.limit_runs.is_some() || self.skip_loose
+    }
+}
+
+/// The operating system a client build is for. Manifests tag files
+/// `Windows` or `OSX`; picking the wrong one silently installs the other
+/// platform's binaries ([`crate::tact::manifest`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Os {
+    Windows,
+    Osx,
+}
+
+impl Os {
+    pub fn host() -> Self {
+        match cfg!(target_os = "macos") {
+            true => Self::Osx,
+            false => Self::Windows,
+        }
+    }
+
+    /// The install and download manifests' platform tag.
+    pub fn tag(self) -> &'static str {
+        match self {
+            Self::Windows => "Windows",
+            Self::Osx => "OSX",
+        }
     }
 }
 

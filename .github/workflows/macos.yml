@@ -1,0 +1,108 @@
+name: macOS
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  macos:
+    name: Build, test, DMG
+    runs-on: macos-14
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+      - name: Release binaries
+        run: cargo build --release --locked --bins
+
+      - name: Assemble .app
+        run: packaging/macos/bundle.sh target/release target/dist
+
+      - name: Ad-hoc codesign
+        run: |
+          codesign --force --deep --sign - target/dist/Lightforge.app
+          codesign --verify --verbose target/dist/Lightforge.app
+
+      - name: Smoke the bundle
+        run: |
+          set -euo pipefail
+          app=target/dist/Lightforge.app
+          "$app/Contents/MacOS/lightforge-gui" --version
+          "$app/Contents/MacOS/lightforge" --version
+          test -f "$app/Contents/Info.plist"
+          plutil -lint "$app/Contents/Info.plist"
+
+      - name: Resolve wowf from Blizzard and fetch a small file
+        run: |
+          set -euo pipefail
+          cli=target/dist/Lightforge.app/Contents/MacOS/lightforge
+          "$cli" update-check --product wowf --region us
+          tmp="$(mktemp -d)"
+          "$cli" plan "$tmp" --product wowf --region us --os osx --cpu arm64 --limit-archives 1 | tee "$tmp/plan.txt"
+          grep -E 'tags[[:space:]]+OSX' "$tmp/plan.txt"
+          grep -E 'flavor[[:space:]]+_forever_' "$tmp/plan.txt"
+          grep -E 'executable[[:space:]]+World of Warcraft.app' "$tmp/plan.txt"
+          grep -E 'wanted[[:space:]]+[1-9][0-9]* files' "$tmp/plan.txt"
+          "$cli" cdn-fetch --product wowf --region us --kind config
+
+      - name: Package DMG
+        run: packaging/macos/dmg.sh target/dist/Lightforge.app
+
+      - name: Mount DMG and smoke the app
+        run: |
+          set -euo pipefail
+          dmg="$(ls target/dist/Lightforge-*-arm64.dmg | head -1)"
+          test -f "$dmg"
+          mount="$(hdiutil attach -nobrowse -readonly "$dmg" | grep -o '/Volumes/[^[:space:]]*' | tail -1)"
+          test -n "$mount"
+          trap 'hdiutil detach "$mount" -quiet || true' EXIT
+          ls -la "$mount"
+          test -d "$mount/Lightforge.app"
+          test -L "$mount/Applications"
+          "$mount/Lightforge.app/Contents/MacOS/lightforge-gui" --version
+          "$mount/Lightforge.app/Contents/MacOS/lightforge" --version
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lightforge-macos-arm64
+          path: target/dist/Lightforge-*-arm64.dmg
+          if-no-files-found: error
+
+      - name: Attach to draft GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: macos-unsigned
+          name: macOS (ad-hoc signed)
+          draft: true
+          prerelease: true
+          files: target/dist/Lightforge-*-arm64.dmg
+          body: |
+            Ad-hoc signed Apple Silicon build of Lightforge.
+
+            **This is not notarized.** After dragging Lightforge to Applications,
+            open it with right-click → Open the first time, or run:
+
+            ```
+            xattr -dr com.apple.quarantine /Applications/Lightforge.app
+            ```
+
+            It downloads the native macOS arm64 World of Warcraft: Forever
+            client (`wowf`, OSX tags) and launches `World of Warcraft.app`
+            directly. Login is the in-game Battle.net window; the Battle.net
+            desktop app is not required to sign in or play.

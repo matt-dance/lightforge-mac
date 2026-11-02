@@ -63,6 +63,7 @@ pub fn games_running(layout: &Layout) -> Vec<GameProcess> {
 /// Block until `pid` exits, on a pidfd: polling [`games_running`] instead
 /// cost a whole process scan (30-40 ms of CPU) every 150 ms of a session.
 /// An error means no pidfd could be had, and the caller has to poll.
+#[cfg(target_os = "linux")]
 pub fn wait_for_exit(pid: u32) -> std::io::Result<()> {
     use std::io;
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -92,8 +93,115 @@ pub fn wait_for_exit(pid: u32) -> std::io::Result<()> {
     }
 }
 
+/// Block until `pid` exits, on a kqueue `EVFILT_PROC` note. Same contract as
+/// the Linux pidfd path: `ESRCH` means it is already gone.
+#[cfg(target_os = "macos")]
+pub fn wait_for_exit(pid: u32) -> std::io::Result<()> {
+    use std::io;
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+    let kq = unsafe { libc::kqueue() };
+    if kq < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a fresh kqueue descriptor nothing else owns.
+    let kq = unsafe { OwnedFd::from_raw_fd(kq) };
+    let change = libc::kevent {
+        ident: pid as libc::uintptr_t,
+        filter: libc::EVFILT_PROC,
+        flags: libc::EV_ADD | libc::EV_ONESHOT,
+        fflags: libc::NOTE_EXIT,
+        data: 0,
+        udata: std::ptr::null_mut(),
+    };
+    // Register the filter. A process that has already exited is ESRCH.
+    let added = unsafe {
+        libc::kevent(
+            kq.as_raw_fd(),
+            &change,
+            1,
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null(),
+        )
+    };
+    if added < 0 {
+        let e = io::Error::last_os_error();
+        return match e.raw_os_error() {
+            Some(libc::ESRCH) => Ok(()),
+            _ => Err(e),
+        };
+    }
+    let mut event = unsafe { std::mem::zeroed::<libc::kevent>() };
+    loop {
+        let n = unsafe {
+            libc::kevent(
+                kq.as_raw_fd(),
+                std::ptr::null(),
+                0,
+                &mut event,
+                1,
+                std::ptr::null(),
+            )
+        };
+        if n >= 0 {
+            return Ok(());
+        }
+        let e = io::Error::last_os_error();
+        if e.kind() != io::ErrorKind::Interrupted {
+            return Err(e);
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+pub fn wait_for_exit(_pid: u32) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "wait_for_exit is only implemented on Linux and macOS",
+    ))
+}
+
 fn collect_games(system: &System, layout: &Layout) -> Vec<GameProcess> {
-    let prefixes = owned_prefixes(layout);
+    #[cfg(target_os = "macos")]
+    {
+        collect_native_games(system, layout)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let prefixes = owned_prefixes(layout);
+
+        system
+            .processes()
+            .iter()
+            .filter_map(|(pid, proc)| {
+                if proc.thread_kind().is_some() {
+                    return None;
+                }
+                let fallback = proc.name().to_string_lossy();
+                let name = names_a_game(proc.cmd(), &fallback)?;
+                if !belongs_to(proc.environ(), &prefixes) {
+                    return None;
+                }
+                Some(GameProcess {
+                    pid: pid.as_u32(),
+                    name,
+                })
+            })
+            .collect()
+    }
+}
+
+/// Native macOS: a game is a process whose executable lives under a WoW
+/// install we own. There is no Wine prefix to attribute by environment.
+#[cfg(target_os = "macos")]
+fn collect_native_games(system: &System, layout: &Layout) -> Vec<GameProcess> {
+    let roots: Vec<std::path::PathBuf> = layout
+        .libraries()
+        .all()
+        .iter()
+        .map(|library| layout.wow_install_in(library))
+        .collect();
 
     system
         .processes()
@@ -102,9 +210,13 @@ fn collect_games(system: &System, layout: &Layout) -> Vec<GameProcess> {
             if proc.thread_kind().is_some() {
                 return None;
             }
-            let fallback = proc.name().to_string_lossy();
-            let name = names_a_game(proc.cmd(), &fallback)?;
-            if !belongs_to(proc.environ(), &prefixes) {
+            let exe = proc.exe()?;
+            if !roots.iter().any(|root| exe.starts_with(root)) {
+                return None;
+            }
+            let name = exe.file_name()?.to_string_lossy().into_owned();
+            let lower = name.to_ascii_lowercase();
+            if lower.contains("blizzard error") || lower.contains("crashpad") {
                 return None;
             }
             Some(GameProcess { pid: pid.as_u32(), name })

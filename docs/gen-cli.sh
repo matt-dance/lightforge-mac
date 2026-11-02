@@ -54,7 +54,7 @@ $ lightforge --help
 One option applies everywhere:
 
 ```text
---root <ROOT>   Override the Blizzard root (default: ~/Games/Blizzard)
+--root <ROOT>   Override the install root (Linux: ~/Games/Blizzard; macOS: Application Support + ~/Applications)
 ```
 
 Most commands take `--product <CODE>` (`wow`, `wow_classic_era`,

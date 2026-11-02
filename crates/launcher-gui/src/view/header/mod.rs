@@ -209,8 +209,8 @@ impl Lightforge {
                     .align_y(Alignment::Center),
                     responsive(|space| self.strip(space.width)),
                 ]
-                // Not when Battle.net was declined.
-                .extend((!self.config.battle_net_declined).then(|| {
+                // Linux only: macOS has no Wine prefix to open the client in.
+                .extend((lightforge_core::host::uses_proton() && !self.config.battle_net_declined).then(|| {
                     Element::from(
                         container(self.battle_net_button())
                             .height(Length::Fill)

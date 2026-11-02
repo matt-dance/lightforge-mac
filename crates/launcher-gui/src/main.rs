@@ -17,6 +17,7 @@ mod fit;
 mod focus;
 mod instance;
 mod pad;
+mod pick;
 mod popover;
 mod provision;
 mod report;

@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use super::locale::shipped_locale;
-use super::{io, Cpu, Event, InstallError, Options};
+use super::{io, Cpu, Event, InstallError, Options, Os};
 use crate::net::Http;
 use crate::product::ProductCode;
 use crate::tact::archive::FileIndex;
@@ -147,10 +147,10 @@ pub async fn offerings(
     let ekey = pair.ekey.ok_or(InstallError::MissingManifest("download"))?;
     let manifest =
         DownloadManifest::parse(&client.fetch_loose(http, &ekey, &pair.ckey).await?)?;
-    require_cpu(options.cpu, code, manifest.tags())?;
+    let cpu = effective_cpu(options.cpu, options.os, code, manifest.tags())?;
 
     let locale = shipped_locale(&options.locale, manifest.tags());
-    let base_tags = TagSet::parse(&options.tag_column_for(&locale));
+    let base_tags = TagSet::parse(&Options::tag_expression(options.os, cpu, options.region, &locale));
     let tags = base_tags.clone().with_optional(options.optional_tags.clone());
 
     let missing = |ekey: &EKey| store.is_none_or(|probe| !probe.has(ekey));
@@ -193,12 +193,12 @@ pub async fn prepare(
             .inspect_err(|e| tracing::warn!("product config {}: {e}", remote.product_config))
             .ok(),
     };
-    let executable = product.as_ref().and_then(|p| match options.cpu {
-        Cpu::X86_64 => p.executable.clone(),
-        Cpu::Arm64 => p.executable_arm64.clone(),
-    });
-    // The fallback name is the x86 binary, which an ARM install leaves out.
-    if options.cpu == Cpu::Arm64 && executable.is_none() {
+    let executable = product
+        .as_ref()
+        .and_then(|p| p.for_platform(options.os, options.cpu));
+    // The Windows ARM client is a separate binary the x86 install leaves out.
+    // OSX ships a universal `.app`; missing `relative_path_arm64` is fine.
+    if options.os == Os::Windows && options.cpu == Cpu::Arm64 && executable.is_none() {
         return Err(no_client(options.cpu, code));
     }
     let flavor = match (options.flavor.is_empty(), product.and_then(|p| p.install_dir)) {
@@ -247,9 +247,9 @@ pub async fn prepare(
     let download_manifest =
         DownloadManifest::parse(&fetch_manifest(build.download, "download").await?)?;
     let install = InstallManifest::parse(&fetch_manifest(build.install, "install").await?)?;
-    require_cpu(options.cpu, code, download_manifest.tags())?;
+    let cpu = effective_cpu(options.cpu, options.os, code, download_manifest.tags())?;
     let locale = shipped_locale(&options.locale, download_manifest.tags());
-    let tag_column = options.tag_column_for(&locale);
+    let tag_column = Options::tag_expression(options.os, cpu, options.region, &locale);
     let tags = TagSet::parse(&tag_column).with_optional(options.optional_tags.clone());
     on_event(Event::Manifests {
         download: download_manifest.len(),
@@ -368,11 +368,28 @@ pub async fn prepare(
 /// An ARM build has to be on offer: without its tag the selection drops
 /// every architecture's binaries and the install could never start. x86_64
 /// is not checked, so a build that predates the tag still installs.
-fn require_cpu(cpu: Cpu, code: &ProductCode, tags: &[Tag]) -> Result<(), InstallError> {
-    match cpu == Cpu::X86_64 || tags.iter().any(|tag| tag.name == cpu.tag()) {
-        true => Ok(()),
-        false => Err(no_client(cpu, code)),
+///
+/// OSX is the exception: the product config often lists only `x86_64` for
+/// mac even when the `.app` is a universal binary. Fall back rather than
+/// refuse Apple Silicon.
+fn effective_cpu(cpu: Cpu, os: Os, code: &ProductCode, tags: &[Tag]) -> Result<Cpu, InstallError> {
+    if cpu == Cpu::X86_64 || tags.iter().any(|tag| tag.name == cpu.tag()) {
+        return Ok(cpu);
     }
+    if os == Os::Osx && tags.iter().any(|tag| tag.name == Cpu::X86_64.tag()) {
+        tracing::info!(
+            "no OSX {} slice for {}; using the OSX x86_64 (universal) client",
+            cpu.tag(),
+            code.as_str()
+        );
+        return Ok(Cpu::X86_64);
+    }
+    Err(no_client(cpu, code))
+}
+
+#[cfg(test)]
+fn require_cpu(cpu: Cpu, code: &ProductCode, tags: &[Tag]) -> Result<(), InstallError> {
+    effective_cpu(cpu, Os::Windows, code, tags).map(|_| ())
 }
 
 fn no_client(cpu: Cpu, code: &ProductCode) -> InstallError {
@@ -398,5 +415,24 @@ mod cpu_tests {
     #[test]
     fn an_x86_install_is_never_refused_for_a_missing_tag() {
         assert!(require_cpu(Cpu::X86_64, &ProductCode::Retail, &[Tag::named("Windows", 1)]).is_ok());
+    }
+
+    #[test]
+    fn osx_arm_falls_back_to_the_universal_x86_slice() {
+        let retail = ProductCode::Retail;
+        let osx_x86 = [Tag::named("OSX", 1), Tag::named("x86_64", ARCH)];
+        assert_eq!(
+            effective_cpu(Cpu::Arm64, Os::Osx, &retail, &osx_x86).unwrap(),
+            Cpu::X86_64
+        );
+        let osx_both = [
+            Tag::named("OSX", 1),
+            Tag::named("x86_64", ARCH),
+            Tag::named("arm64", ARCH),
+        ];
+        assert_eq!(
+            effective_cpu(Cpu::Arm64, Os::Osx, &retail, &osx_both).unwrap(),
+            Cpu::Arm64
+        );
     }
 }

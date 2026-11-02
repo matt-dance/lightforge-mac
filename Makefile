@@ -51,7 +51,7 @@ BINARIES := lightforge lightforge-gui
 
 .PHONY: release image check-glibc clean-release cli-doc check-cli-doc \
 	packages deb rpm tarball appimage installer checksums github-names check-binaries \
-	check-spec clean-packages install uninstall
+	check-spec clean-packages install uninstall macos-app macos-dmg
 
 ## Build release binaries against an old glibc, and verify they are portable.
 release: image
@@ -288,3 +288,13 @@ clean-packages:
 
 clean-release:
 	rm -rf target/container
+
+## macOS .app and DMG. Only useful on Darwin; the GitHub Actions workflow
+## `.github/workflows/macos.yml` is what produces the release artifact.
+macos-app:
+	cargo build --release --locked --bins
+	packaging/macos/bundle.sh $(CURDIR)/target/release $(DIST)
+	codesign --force --deep --sign - $(DIST)/Lightforge.app
+
+macos-dmg: macos-app
+	packaging/macos/dmg.sh $(DIST)/Lightforge.app

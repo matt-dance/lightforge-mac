@@ -5,7 +5,7 @@ use crate::*;
 #[derive(Parser)]
 #[command(name = "lightforge", version, about = "Lightforge CLI")]
 pub(crate) struct Cli {
-    /// Override the Blizzard root (default: ~/Games/Blizzard).
+    /// Override the install root (Linux: ~/Games/Blizzard; macOS: Application Support + ~/Applications).
     #[arg(long, global = true)]
     pub(crate) root: Option<PathBuf>,
 
@@ -88,10 +88,11 @@ pub(crate) enum Command {
         #[arg(long)]
         skip_preflight: bool,
     },
-    /// Launch the game directly under Proton, the `[ PLAY ]` path.
+    /// Launch the game, the `[ PLAY ]` path.
     ///
-    /// Runs pre-flight first, then starts `Wow.exe` through the prefix's
-    /// Windows-visible path. Battle.net is not involved.
+    /// On Linux this runs pre-flight then starts `Wow.exe` through Proton.
+    /// On macOS it starts `World of Warcraft.app` directly. Battle.net is
+    /// not involved.
     Play {
         /// Product to launch, e.g. `wow` or `wow_classic`.
         #[arg(long, default_value = "wow", value_parser = commands::product_code)]
@@ -260,6 +261,9 @@ pub(crate) enum Command {
         /// default.
         #[arg(long)]
         cpu: Option<String>,
+        /// Plan another OS's client: `windows` or `osx`. This one's by default.
+        #[arg(long)]
+        os: Option<String>,
         /// Break the difference down by priority, bucket and source, and
         /// cross-examine the store probe that produced it.
         #[arg(long)]

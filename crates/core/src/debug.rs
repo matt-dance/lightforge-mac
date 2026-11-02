@@ -242,45 +242,59 @@ fn gpu_driver() -> Option<String> {
 ///
 /// From `/sys` (`uevent`), not `vulkaninfo` or `glxinfo`, which may be missing.
 pub(crate) fn cards() -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir("/sys/class/drm") else {
-        return Vec::new();
-    };
-    let mut cards: Vec<String> = Vec::new();
-
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        // `card0` is a device; `card0-DP-1` is a connector hanging off it.
-        if !name.starts_with("card") || name.contains('-') {
-            continue;
-        }
-        let Ok(uevent) = std::fs::read_to_string(entry.path().join("device/uevent")) else {
-            continue;
-        };
-        let field = |key: &str| {
-            uevent.lines().find_map(|l| l.strip_prefix(key).map(|v| v.to_ascii_lowercase()))
-        };
-        if let Some(driver) = field("DRIVER=") {
-            cards.push(match field("PCI_ID=") {
-                Some(id) => format!("{driver} {id}"),
-                None => driver,
-            });
-        }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Vec::new()
     }
+    #[cfg(target_os = "linux")]
+    {
+        let Ok(entries) = std::fs::read_dir("/sys/class/drm") else {
+            return Vec::new();
+        };
+        let mut cards: Vec<String> = Vec::new();
 
-    cards.sort();
-    cards.dedup();
-    cards
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            // `card0` is a device; `card0-DP-1` is a connector hanging off it.
+            if !name.starts_with("card") || name.contains('-') {
+                continue;
+            }
+            let Ok(uevent) = std::fs::read_to_string(entry.path().join("device/uevent")) else {
+                continue;
+            };
+            let field = |key: &str| {
+                uevent.lines().find_map(|l| l.strip_prefix(key).map(|v| v.to_ascii_lowercase()))
+            };
+            if let Some(driver) = field("DRIVER=") {
+                cards.push(match field("PCI_ID=") {
+                    Some(id) => format!("{driver} {id}"),
+                    None => driver,
+                });
+            }
+        }
+
+        cards.sort();
+        cards.dedup();
+        cards
+    }
 }
 
 /// The proprietary module's version, when it is the one loaded.
 pub(crate) fn nvidia_version() -> Option<String> {
-    let text = std::fs::read_to_string("/proc/driver/nvidia/version").ok()?;
-    // "NVRM version: NVIDIA UNIX x86_64 Kernel Module  580.82.07  ...", the
-    // first dotted number on the line is the one anybody quotes.
-    text.split_whitespace()
-        .find(|word| word.split('.').count() >= 3 && word.starts_with(|c: char| c.is_ascii_digit()))
-        .map(str::to_owned)
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let text = std::fs::read_to_string("/proc/driver/nvidia/version").ok()?;
+        // "NVRM version: NVIDIA UNIX x86_64 Kernel Module  580.82.07  ...", the
+        // first dotted number on the line is the one anybody quotes.
+        text.split_whitespace()
+            .find(|word| word.split('.').count() >= 3 && word.starts_with(|c: char| c.is_ascii_digit()))
+            .map(str::to_owned)
+    }
 }
 
 /// Write the machine's identity to the log, at every start.
@@ -296,19 +310,55 @@ pub fn log_environment() {
 }
 
 fn os_release() -> String {
-    std::fs::read_to_string("/etc/os-release")
-        .ok()
-        .and_then(|text| {
-            text.lines()
-                .find_map(|l| l.strip_prefix("PRETTY_NAME=").map(|v| v.trim_matches('"').to_owned()))
-        })
-        .unwrap_or_else(|| "unknown".to_owned())
+    #[cfg(target_os = "macos")]
+    {
+        macos_product_version().unwrap_or_else(|| "macOS".to_owned())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        std::fs::read_to_string("/etc/os-release")
+            .ok()
+            .and_then(|text| {
+                text.lines().find_map(|l| {
+                    l.strip_prefix("PRETTY_NAME=")
+                        .map(|v| v.trim_matches('"').to_owned())
+                })
+            })
+            .unwrap_or_else(|| "unknown".to_owned())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_product_version() -> Option<String> {
+    let text = std::fs::read_to_string("/System/Library/CoreServices/SystemVersion.plist").ok()?;
+    let version = plist_string(&text, "ProductVersion")?;
+    let name = plist_string(&text, "ProductName").unwrap_or_else(|| "macOS".to_owned());
+    Some(format!("{name} {version}"))
+}
+
+#[cfg(target_os = "macos")]
+fn plist_string(plist: &str, key: &str) -> Option<String> {
+    let needle = format!("<key>{key}</key>");
+    let after = plist.split_once(&needle)?.1;
+    let start = after.find("<string>")? + "<string>".len();
+    let rest = &after[start..];
+    let end = rest.find("</string>")?;
+    Some(rest[..end].trim().to_owned())
 }
 
 fn kernel() -> String {
-    std::fs::read_to_string("/proc/sys/kernel/osrelease")
-        .map(|s| s.trim().to_owned())
-        .unwrap_or_else(|_| "unknown".to_owned())
+    let mut uts = unsafe { std::mem::zeroed::<libc::utsname>() };
+    if unsafe { libc::uname(&mut uts) } == 0 {
+        let bytes: Vec<u8> = uts.release.iter().map(|&c| c as u8).take_while(|&b| b != 0).collect();
+        return String::from_utf8_lossy(&bytes).into_owned();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(s) = std::fs::read_to_string("/proc/sys/kernel/osrelease") {
+            return s.trim().to_owned();
+        }
+    }
+    "unknown".to_owned()
 }
 
 #[cfg(test)]

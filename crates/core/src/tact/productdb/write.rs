@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use super::read::decode_install;
 use super::wire::{double_field, message_field, read_varint, string_field, varint_field};
-use super::{agent_tags, cpu_from_tags, io, locale_from_tags, ProductDbError};
+use super::{agent_tags, cpu_from_tags, io, locale_from_tags, os_from_tags, ProductDbError};
 use crate::buildinfo::{self, BuildInfo};
 use crate::product::ProductCode;
 
@@ -79,6 +79,7 @@ impl ProductInstall {
         // The processor stays: Battle.net told x86_64 about an ARM install
         // would "repair" it into the x86 client.
         self.tags = agent_tags(
+            os_from_tags(&self.tags),
             cpu_from_tags(&self.tags),
             &self.region,
             &self.locale,

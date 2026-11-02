@@ -103,7 +103,14 @@ has its own AppImage and tarball; it is
 chmod +x Lightforge-x86_64.AppImage && ./Lightforge-x86_64.AppImage
 ```
 
-##
+### macOS (Apple Silicon)
+
+Download `Lightforge-*-arm64.dmg` from this fork's
+[releases page](https://github.com/matt-dance/lightforge-mac/releases),
+open it, and drag **Lightforge** to Applications. The CI build is ad-hoc
+signed: right-click → Open the first time, or
+`xattr -dr com.apple.quarantine /Applications/Lightforge.app`.
+Details in [INSTALL.md](INSTALL.md#macos-apple-silicon).
 
 ### From source
 
@@ -147,7 +154,7 @@ reporter (`☰ › Report a bug`).
 
 | | |
 | --- | --- |
-| **OS** | Any current Linux. glibc 2.35+ for the release binaries. |
+| **OS** | Any current Linux (glibc 2.35+ for the release binaries), or macOS 13+ on Apple Silicon. |
 | **GPU** | Vulkan if you have it; it falls back to software rendering if you don't. |
 | **32-bit** | Only for Battle.net, whose installer and client are 32-bit. WoW alone doesn't need it. |
 
@@ -190,7 +197,11 @@ Steam, Lutris or a system Wine.
   press Send, and you see the whole report first. Every host and what it
   sees is listed in [DISCLAIMER.md](DISCLAIMER.md#what-leaves-your-machine).
 - **WoW first.** Other Blizzard games are installed and run by Battle.net.
-- **Linux only.**
+- **Linux, and macOS on Apple Silicon** in this fork. The Linux build still
+  launches `Wow.exe` through Proton-GE. The macOS build downloads the OSX
+  TACT slice and launches `World of Warcraft.app` directly. See
+  [INSTALL.md](INSTALL.md#macos-apple-silicon) and
+  [packaging/macos/README.md](packaging/macos/README.md).
 
 ## How it was built
 

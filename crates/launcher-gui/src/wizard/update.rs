@@ -158,20 +158,9 @@ fn found_games(app: &mut Lightforge, msg: Msg) -> iced::Task<Message> {
             iced::Task::none()
         }
 
-        Msg::Browse => iced::Task::perform(
-            // The XDG portal through `ashpd`, as the screenshot picker does;
-            // see `update/report.rs` for why not `rfd`.
-            async {
-                let request = ashpd::desktop::file_chooser::OpenFileRequest::default()
-                    .title("Choose a Wine prefix or a game folder")
-                    .modal(true)
-                    .directory(true)
-                    .multiple(false);
-                let files = request.send().await.ok()?.response().ok()?;
-                files.uris().first().and_then(|uri| uri.to_file_path().ok())
-            },
-            |path| Message::Wizard(Msg::Browsed(path)),
-        ),
+        Msg::Browse => iced::Task::perform(crate::pick::pick_folder(), |path| {
+            Message::Wizard(Msg::Browsed(path))
+        }),
 
         Msg::Browsed(path) => {
             let Some(path) = path else { return iced::Task::none() };

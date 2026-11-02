@@ -113,12 +113,27 @@ impl Layout {
         self.libraries.default()
     }
 
-    /// The default layout at `~/Games/Blizzard`.
+    /// The default layout at `~/Games/Blizzard` on Linux, and on macOS a
+    /// writable `~/Applications/World of Warcraft` for the game with
+    /// Lightforge's own data under Application Support.
     pub fn default_for_user() -> Result<Self, PathError> {
         let home = directories::UserDirs::new().ok_or(PathError::NoHomeDirectory)?;
-        Ok(Self::with_root(
-            home.home_dir().join("Games").join("Blizzard"),
-        ))
+        #[cfg(target_os = "macos")]
+        {
+            let support = home
+                .home_dir()
+                .join("Library")
+                .join("Application Support")
+                .join("Lightforge");
+            let games = home.home_dir().join("Applications");
+            Ok(Self::with_root(support).with_games(Some(games)))
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Ok(Self::with_root(
+                home.home_dir().join("Games").join("Blizzard"),
+            ))
+        }
     }
 
     /// `~/Games/Blizzard`
@@ -303,7 +318,13 @@ impl Layout {
 
     /// The product's game binary, for `[ PLAY ]`; see [`game_executable`].
     pub fn wow_exe(&self, code: &ProductCode) -> PathBuf {
-        let name = self.flavors.get(code).and_then(|f| f.executable.as_deref()).unwrap_or(code.executable());
+        let name = self.flavors.get(code).and_then(|f| f.executable.as_deref()).unwrap_or_else(|| {
+            if crate::host::is_macos() {
+                code.macos_executable()
+            } else {
+                code.executable()
+            }
+        });
         game_executable(&self.product_dir(code), name)
     }
 }
@@ -382,6 +403,56 @@ pub fn flavor_dir_name(install: &Path, code: &ProductCode) -> String {
         .unwrap_or_else(|| code.install_dir().into_owned())
 }
 
+/// Whether `path` is a macOS `.app` bundle (a directory, not a file).
+pub fn is_app_bundle(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("app"))
+        && path.is_dir()
+}
+
+/// Whether `path` can be launched: a regular file or an `.app` bundle.
+pub fn is_launchable(path: &Path) -> bool {
+    path.is_file() || is_app_bundle(path)
+}
+
+/// The Mach-O inside an `.app`, or `path` itself for a regular binary.
+///
+/// Looks in `Contents/MacOS/` for a file named like the bundle, then the
+/// first non-helper there. Missing pieces fall back to `path` so the error
+/// still names what was asked for.
+pub fn launch_binary(path: &Path) -> PathBuf {
+    if !is_app_bundle(path) {
+        return path.to_path_buf();
+    }
+    let macos = path.join("Contents").join("MacOS");
+    if let Some(stem) = path.file_stem() {
+        let named = macos.join(stem);
+        if named.is_file() {
+            return named;
+        }
+    }
+    let mut found: Vec<PathBuf> = std::fs::read_dir(&macos)
+        .ok()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.is_file()
+                && p.file_name().is_some_and(|n| {
+                    let n = n.to_string_lossy();
+                    !n.eq_ignore_ascii_case("Blizzard Error")
+                        && !n.to_ascii_lowercase().contains("crashpad")
+                })
+        })
+        .collect();
+    found.sort();
+    found
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| path.to_path_buf())
+}
+
 /// The game binary inside a flavor directory, resolved by probing it.
 ///
 /// One real install holds `_retail_/Wow.exe`, `_classic_era_/WowClassic.exe`
@@ -391,14 +462,15 @@ pub fn flavor_dir_name(install: &Path, code: &ProductCode) -> String {
 /// the error.
 pub fn game_executable(flavor_dir: &Path, name: &str) -> PathBuf {
     let expected = flavor_dir.join(name);
-    if expected.is_file() {
+    if is_launchable(&expected) {
         return expected;
     }
     let same_name = std::fs::read_dir(flavor_dir).ok().and_then(|entries| {
-        entries
-            .flatten()
-            .map(|e| e.path())
-            .find(|p| p.is_file() && p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(name)))
+        entries.flatten().map(|e| e.path()).find(|p| {
+            p.file_name()
+                .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(name))
+                && is_launchable(p)
+        })
     });
     if let Some(found) = same_name {
         return found;
@@ -411,12 +483,20 @@ pub fn game_executable(flavor_dir: &Path, name: &str) -> PathBuf {
                 .flatten()
                 .map(|e| e.path())
                 .filter(|p| {
-                    // `BlizzardError.exe` ships beside the game in every
-                    // flavor and is a crash reporter, not the client.
-                    p.is_file()
-                        && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe"))
-                        && p.file_name()
-                            .is_some_and(|n| !n.eq_ignore_ascii_case("BlizzardError.exe"))
+                    // `BlizzardError.exe` / `Blizzard Error.app` ship beside
+                    // the game in every flavor and are a crash reporter, not
+                    // the client.
+                    let name = p
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_ascii_lowercase());
+                    let Some(name) = name else { return false };
+                    if name.contains("blizzarderror") || name.contains("blizzard error") {
+                        return false;
+                    }
+                    if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")) && p.is_file() {
+                        return true;
+                    }
+                    is_app_bundle(p)
                 })
                 .collect();
             found.sort();
@@ -773,12 +853,35 @@ mod exe_tests {
         let (_t, layout, code) = layout_with("wow", &["BlizzardError.exe"]);
         // Nothing launchable is present, so the expected name comes back for
         // the error message, not the crash reporter.
-        assert_eq!(layout.wow_exe(&code).file_name().unwrap(), "Wow.exe");
+        let expected = if crate::host::is_macos() {
+            code.macos_executable()
+        } else {
+            code.executable()
+        };
+        assert_eq!(layout.wow_exe(&code).file_name().unwrap(), expected);
     }
 
     #[test]
     fn an_empty_install_still_names_a_plausible_binary() {
         let (_t, layout, code) = layout_with("wow_classic_era", &[]);
-        assert_eq!(layout.wow_exe(&code).file_name().unwrap(), "WowClassic.exe");
+        let expected = if crate::host::is_macos() {
+            code.macos_executable()
+        } else {
+            code.executable()
+        };
+        assert_eq!(layout.wow_exe(&code).file_name().unwrap(), expected);
+    }
+
+    #[test]
+    fn a_macos_app_bundle_is_preferred_over_an_exe() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let flavor = temp.path().join("_forever_");
+        let app = flavor.join("World of Warcraft.app");
+        std::fs::create_dir_all(app.join("Contents").join("MacOS")).unwrap();
+        std::fs::write(flavor.join("Wow.exe"), b"MZ").unwrap();
+        let found = game_executable(&flavor, "World of Warcraft.app");
+        assert_eq!(found.file_name().unwrap(), "World of Warcraft.app");
+        let inner = launch_binary(&app);
+        assert_eq!(inner, app, "empty Contents/MacOS falls back to the bundle");
     }
 }
