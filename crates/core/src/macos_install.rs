@@ -15,8 +15,11 @@
 //!    when the shipped `CodeResources` no longer matches (data files in
 //!    `Contents/MacOS`, missing framework symlinks).
 //!
-//! The CASC store under `Data/` is skipped: a million archived blobs are not
-//! executables, and an 85 GB repair must not walk them.
+//! `execute` runs this after every install-file extract: a fresh install
+//! *and* later patches that replace `World of Warcraft.app` /
+//! `BlizzardBrowser.app`. The CASC store under `Data/` is skipped: a
+//! million archived blobs are not executables, and an 85 GB repair must
+//! not walk them.
 
 use std::fs::File;
 use std::io::Read;
@@ -650,6 +653,38 @@ mod tests {
             std::fs::read(fw.join("Resources").join("Info.plist")).unwrap(),
             b"ok"
         );
+    }
+
+    #[test]
+    fn a_patch_that_replaces_the_browser_is_assembled_again() {
+        let root = tempfile::tempdir().unwrap();
+        let fw = shallow_cef(root.path());
+        let first = prepare_tree(root.path());
+        assert_eq!(first.assembled_frameworks, 1, "{first:?}");
+        assert!(fw.join("Versions").join("Current").is_symlink());
+
+        // A TACT update re-extracts the install-manifest paths as regular
+        // files, replacing the assembled .app / .framework.
+        std::fs::remove_dir_all(&fw).unwrap();
+        let fw = shallow_cef(root.path());
+        assert!(
+            !fw.join("Versions").exists(),
+            "the patch left the shallow TACT layout"
+        );
+
+        let patched = prepare_tree(root.path());
+        assert_eq!(patched.assembled_frameworks, 1, "{patched:?}");
+        assert!(fw.join("Versions").join("Current").is_symlink());
+        assert_eq!(
+            std::fs::read(fw.join("Resources").join("Info.plist")).unwrap(),
+            b"<plist/>"
+        );
+        let mode = std::fs::metadata(fw.join("Chromium Embedded Framework"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o111;
+        assert_ne!(mode, 0, "the replaced Mach-O must be executable again");
     }
 
     #[test]

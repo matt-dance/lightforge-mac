@@ -72,22 +72,23 @@ pub async fn execute(
         }
         install_failed = report.failed.clone();
 
-        // Only on a complete extraction: a `.flavor.info` beside no game
-        // claims a product that is not installed.
+        // `.flavor.info` only when the extract is complete: a flavor file
+        // beside no game claims a product that is not installed.
+        let flavor_dir = dest.join(&flavor);
         if install_complete {
-            let flavor_dir = dest.join(&flavor);
             download::write_flavor_info(&flavor_dir, code).map_err(io(&flavor_dir))?;
-            // Manifest files have no Unix mode; Mach-O would stay 0644.
-            // On macOS this also rebuilds CEF `Versions/Current` and ad-hoc
-            // signs the bundles so BlizzardBrowser can launch.
-            let fixup = crate::macos_install::prepare_tree(&flavor_dir);
-            if fixup.made_executable > 0
-                || fixup.cleared_quarantine
-                || fixup.assembled_frameworks > 0
-                || fixup.signed > 0
-            {
-                tracing::info!("install launch fixup: {fixup}");
-            }
+        }
+        // Fresh install *and* every later patch: TACT re-extracts
+        // `World of Warcraft.app` / `BlizzardBrowser.app` as a shallow
+        // tree, so CEF must be reassembled, +x set, and the bundles
+        // signed again. Run even if one locale plist failed.
+        let fixup = crate::macos_install::prepare_tree(&flavor_dir);
+        if fixup.made_executable > 0
+            || fixup.cleared_quarantine
+            || fixup.assembled_frameworks > 0
+            || fixup.signed > 0
+        {
+            tracing::info!("install launch fixup: {fixup}");
         }
     }
 
