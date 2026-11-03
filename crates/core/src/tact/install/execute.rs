@@ -77,6 +77,11 @@ pub async fn execute(
         if install_complete {
             let flavor_dir = dest.join(&flavor);
             download::write_flavor_info(&flavor_dir, code).map_err(io(&flavor_dir))?;
+            // Manifest files have no Unix mode; Mach-O would stay 0644.
+            let fixup = crate::macos_install::prepare_tree(&flavor_dir);
+            if fixup.made_executable > 0 || fixup.cleared_quarantine {
+                tracing::info!("install launch fixup: {fixup}");
+            }
         }
     }
 

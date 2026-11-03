@@ -83,6 +83,16 @@ impl Lightforge {
                 self.pump()
             }
 
+            Message::GameRegion(region) => {
+                if self.config.region == region && self.config.region_set {
+                    return Ok(Task::none());
+                }
+                self.config.set_region(region);
+                self.save_config();
+                self.status = format!("downloads use {} ({})", region.label(), region.as_str());
+                self.reload(self.selected.code.clone())
+            }
+
             Message::GameLanguage(locale) => {
                 use lightforge_core::tact::install::{current_locale, locale_name};
 

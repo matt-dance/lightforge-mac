@@ -64,6 +64,76 @@ impl Region {
     pub fn host(self) -> String {
         format!("https://{}.version.battle.net", self.as_str())
     }
+
+    /// The region the machine appears to be in, from the system locale.
+    ///
+    /// Americas and Oceania map to [`Region::Us`]. When nothing recognisable
+    /// is set, [`Region::Us`] is the fallback (not Europe): a first-run Mac
+    /// in Utah was being given `eu` because that is [`Region::default`].
+    pub fn from_system() -> Self {
+        for hint in system_locale_hints() {
+            if let Some(region) = Self::from_locale_tag(&hint) {
+                return region;
+            }
+        }
+        Self::Us
+    }
+
+    /// Map a locale tag (`en_US.UTF-8`, `en-US`, `US`) onto a region.
+    pub fn from_locale_tag(tag: &str) -> Option<Self> {
+        let trimmed = tag.trim();
+        if trimmed.is_empty() || trimmed == "C" || trimmed == "POSIX" {
+            return None;
+        }
+        let body = trimmed.split('.').next().unwrap_or(trimmed);
+        let body = body.split('@').next().unwrap_or(body);
+        let country = if let Some((_, rest)) = body.split_once(['_', '-']) {
+            rest
+        } else {
+            body
+        };
+        Some(match country.to_ascii_uppercase().as_str() {
+            "US" | "CA" | "MX" | "BR" | "AR" | "CL" | "CO" | "PE" | "VE" | "EC" | "UY"
+            | "PY" | "BO" | "CR" | "PA" | "GT" | "HN" | "SV" | "NI" | "DO" | "PR" | "CU"
+            | "JM" | "TT" | "AU" | "NZ" => Self::Us,
+            "KR" => Self::Kr,
+            "CN" => Self::Cn,
+            "TW" | "HK" | "MO" => Self::Tw,
+            "SG" | "MY" | "TH" | "ID" | "PH" | "VN" => Self::Sg,
+            "GB" | "UK" | "IE" | "FR" | "DE" | "ES" | "IT" | "NL" | "BE" | "AT" | "CH"
+            | "SE" | "NO" | "DK" | "FI" | "PL" | "PT" | "GR" | "CZ" | "HU" | "RO" | "BG"
+            | "HR" | "SK" | "SI" | "LT" | "LV" | "EE" | "IS" | "LU" | "MT" | "CY" | "UA"
+            | "RS" | "BA" | "MK" | "AL" | "ME" | "TR" | "IL" | "AE" | "SA" | "QA" | "KW"
+            | "EG" | "ZA" | "RU" => Self::Eu,
+            _ => return None,
+        })
+    }
+}
+
+fn system_locale_hints() -> Vec<String> {
+    let mut out = Vec::new();
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = std::process::Command::new("defaults")
+            .args(["read", "-g", "AppleLocale"])
+            .output()
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+                if !text.is_empty() {
+                    out.push(text);
+                }
+            }
+        }
+    }
+    for var in ["LC_ALL", "LC_CTYPE", "LANG"] {
+        if let Ok(value) = std::env::var(var) {
+            if !value.is_empty() {
+                out.push(value);
+            }
+        }
+    }
+    out
 }
 
 impl std::str::FromStr for Region {
@@ -498,6 +568,20 @@ eu|tpr/wow|level3.blizzard.com|http://level3.blizzard.com/?maxhosts=8 https://le
         assert_eq!("US".parse::<Region>().unwrap(), Region::Us);
         assert!("mars".parse::<Region>().is_err());
         assert_eq!(Region::default(), Region::Eu);
+    }
+
+    #[test]
+    fn a_locale_tag_picks_the_matching_blizzard_region() {
+        assert_eq!(Region::from_locale_tag("en_US.UTF-8"), Some(Region::Us));
+        assert_eq!(Region::from_locale_tag("en-US"), Some(Region::Us));
+        assert_eq!(Region::from_locale_tag("en_AU"), Some(Region::Us));
+        assert_eq!(Region::from_locale_tag("de_DE.UTF-8"), Some(Region::Eu));
+        assert_eq!(Region::from_locale_tag("ko_KR"), Some(Region::Kr));
+        assert_eq!(Region::from_locale_tag("zh_CN"), Some(Region::Cn));
+        assert_eq!(Region::from_locale_tag("zh_TW"), Some(Region::Tw));
+        assert_eq!(Region::from_locale_tag("en_SG"), Some(Region::Sg));
+        assert_eq!(Region::from_locale_tag("C"), None);
+        assert_eq!(Region::from_locale_tag(""), None);
     }
 
     #[test]

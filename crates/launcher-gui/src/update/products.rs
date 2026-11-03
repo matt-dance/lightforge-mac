@@ -58,6 +58,28 @@ impl Lightforge {
                         .map(|r| format!("latest {}", r.versions_name))
                         .unwrap_or_default(),
                 };
+                if !self.local.is_installed() {
+                    if let Some(found) =
+                        lightforge_core::discover::nearby_complete(&self.layout, &code)
+                    {
+                        return Ok(self.take_existing_install(found));
+                    }
+                } else if lightforge_core::macos_install::needs_fixup(
+                    &self.layout.wow_install(&code),
+                    &code,
+                ) {
+                    let install = self.layout.wow_install(&code);
+                    return Ok(Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                lightforge_core::macos_install::prepare_install(&install)
+                            })
+                            .await
+                            .map_err(|e| e.to_string())
+                        },
+                        Message::InstallPrepared,
+                    ));
+                }
                 Task::none()
             }
 

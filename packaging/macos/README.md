@@ -26,9 +26,18 @@ does this on `macos-14` and uploads the DMG.
 2. Drag **Lightforge** onto **Applications**.
 3. Eject the disk image.
 
-The game files go in `~/Applications/World of Warcraft` by default
-(user-writable, no admin). Lightforge's own data lives under
+The game files go in
+`~/Library/Application Support/Lightforge/games/World of Warcraft` by
+default (user-writable, no admin). That is the path a first install
+already used; Lightforge keeps it. Lightforge's own data lives under
 `~/Library/Application Support/io.Tuxcore.Lightforge`.
+
+A complete install is recognised after relaunch (the `.app` is a
+directory, not a missing binary). If the tile still says Install, the
+cog menu's **Locate / verify existing install** adopts the folder on
+disk and sets `+x` on Mach-O helpers so the bundle can launch. The
+download region is taken from the system locale (Americas → `us`) and
+can be changed under Settings → Downloads.
 
 ## Gatekeeper (ad-hoc signature)
 

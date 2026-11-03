@@ -122,7 +122,17 @@ pub struct Local {
 impl Local {
     /// Inspect `code`'s install under `layout`.
     pub fn inspect(layout: &Layout, code: &ProductCode) -> Self {
-        let info = crate::buildinfo::BuildInfo::load(layout.build_info(code)).ok();
+        Self::inspect_at(&layout.wow_install(code), code)
+    }
+
+    /// Inspect `code` at a specific WoW install root, e.g. one the user
+    /// pointed at or one found beside the configured library.
+    ///
+    /// The launchable is a regular file **or** a macOS `.app` bundle: Forever
+    /// ships `World of Warcraft.app`, a directory, and treating that as
+    /// missing is how a finished 85 GB install offered Install again.
+    pub fn inspect_at(install: &std::path::Path, code: &ProductCode) -> Self {
+        let info = crate::buildinfo::BuildInfo::load(install.join(".build.info")).ok();
         let cell = |column: &str| {
             info.as_ref()
                 .and_then(|i| i.get(code, column).ok())
@@ -130,17 +140,23 @@ impl Local {
                 .filter(|v| !v.is_empty())
         };
 
-        let exe = layout.wow_exe(code);
-        let store_files = crate::tact::storage::Storage::open(layout.wow_install(code))
+        let flavor = crate::paths::flavor_dir_name(install, code);
+        let name = if crate::host::is_macos() {
+            code.macos_executable()
+        } else {
+            code.executable()
+        };
+        let exe = crate::paths::game_executable(&install.join(flavor), name);
+        let store_files = crate::tact::storage::Storage::open(install)
             .map(|store| store.stats().files)
             .unwrap_or(0);
 
         Self {
             build_key: cell(crate::buildinfo::COL_BUILD_KEY),
             version: cell(crate::buildinfo::COL_VERSION),
-            executable: exe.is_file().then_some(exe),
+            executable: crate::paths::is_launchable(&exe).then_some(exe),
             store_files,
-            staged: crate::tact::staged::get(&layout.wow_install(code), code),
+            staged: crate::tact::staged::get(install, code),
         }
     }
 
@@ -375,6 +391,38 @@ mod tests {
         assert!(ActionState::Play.is_playable());
         assert!(!ActionState::Install.is_playable());
         assert!(!ActionState::Downloading(Progress::default()).is_playable());
+    }
+
+    #[test]
+    fn a_macos_app_bundle_counts_as_the_installed_binary() {
+        let root = tempfile::tempdir().unwrap();
+        let install = root.path().join("World of Warcraft");
+        let flavor = install.join("_forever_");
+        let app = flavor.join("World of Warcraft.app");
+        std::fs::create_dir_all(app.join("Contents").join("MacOS")).unwrap();
+        std::fs::write(
+            app.join("Contents").join("MacOS").join("World of Warcraft"),
+            [0xCF, 0xFA, 0xED, 0xFE],
+        )
+        .unwrap();
+        std::fs::write(
+            flavor.join(".flavor.info"),
+            "Product Flavor!STRING:0\nwowf\n",
+        )
+        .unwrap();
+        std::fs::write(
+            install.join(".build.info"),
+            "Branch!STRING:0|Build Key!HEX:16|Version!STRING:0\n## seq\nus|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|1.60.1.70707\n",
+        )
+        .unwrap();
+
+        let local = Local::inspect_at(&install, &ProductCode::Forever);
+        assert!(
+            local.executable.as_ref().is_some_and(|p| crate::paths::is_app_bundle(p)),
+            "the .app must count even though it is a directory: {:?}",
+            local.executable
+        );
+        assert!(local.executable.as_ref().is_some_and(|p| !p.is_file()));
     }
 
     #[test]

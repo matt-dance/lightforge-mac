@@ -38,7 +38,7 @@ use format::*;
 use icons::*;
 use message::*;
 use model::*;
-use wizard::LocaleChoice;
+use wizard::{LocaleChoice, RegionChoice};
 use widgets::*;
 
 use std::collections::{HashMap, HashSet};
@@ -68,6 +68,7 @@ use lightforge_core::proton::{self, ProtonPin};
 use lightforge_core::setup::Status as SetupStatus;
 use lightforge_core::storage;
 use lightforge_core::tact::install::Offerings;
+use lightforge_core::tact::version::Region;
 use lightforge_core::transfers::{self, Saved, Standing};
 use lightforge_core::tact::download::Cancel;
 use lightforge_core::tweaks::{HostTools, Tweaks};

@@ -259,8 +259,23 @@ impl Lightforge {
             .iter()
             .map(|(code, _)| LocaleChoice(code.to_string()))
             .collect();
+        let regions: Vec<RegionChoice> = Region::ALL.into_iter().map(RegionChoice).collect();
 
         setting_group([
+            setting(
+                "Download region",
+                "Which of Blizzard's version services new downloads ask. An installed game keeps the region written in its .build.info.",
+                self.hint("Filled from the system locale on first launch. Americas and Oceania are us."),
+                self.picker(
+                    "download region".to_owned(),
+                    regions,
+                    Some(RegionChoice(self.config.region)),
+                    "",
+                    |choice| Message::GameRegion(choice.0),
+                    Length::Fixed(260.0),
+                    theme::BODY,
+                ),
+            ),
             setting(
                 "Game language",
                 "What new games download in. An installed game keeps its own: Modify Install in its cog menu changes it.",

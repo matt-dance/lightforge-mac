@@ -29,6 +29,7 @@ pub mod fuzzing;
 pub mod host;
 pub mod library;
 pub mod logging;
+pub mod macos_install;
 pub mod migrate;
 pub mod net;
 pub mod paths;

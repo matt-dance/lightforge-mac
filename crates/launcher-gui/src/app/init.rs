@@ -22,6 +22,16 @@ impl Lightforge {
         };
         // Seeded for an older config, not saved (`Config::ensure_libraries`).
         let _ = config.ensure_libraries();
+        // A first-run Mac skipped the wizard and saved `region = eu`. Fill
+        // from the system locale once, then leave an explicit choice alone.
+        let region_changed = config.ensure_region();
+        if region_changed {
+            if let Some(dirs) = &dirs {
+                if let Err(e) = config.save(&dirs.config_file()) {
+                    tracing::warn!("could not save the system region: {}", chain(&e));
+                }
+            }
+        }
         let config = config;
         // Honours `blizzard_root`, the same way the CLI does.
         let layout = config.layout().unwrap_or_else(|e| {

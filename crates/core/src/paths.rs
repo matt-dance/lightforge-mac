@@ -113,9 +113,13 @@ impl Layout {
         self.libraries.default()
     }
 
-    /// The default layout at `~/Games/Blizzard` on Linux, and on macOS a
-    /// writable `~/Applications/World of Warcraft` for the game with
-    /// Lightforge's own data under Application Support.
+    /// The default layout at `~/Games/Blizzard` on Linux, and on macOS
+    /// `~/Library/Application Support/Lightforge` with games under
+    /// `…/Lightforge/games/World of Warcraft`.
+    ///
+    /// That is the directory a first install actually used: `config.layout`
+    /// with no `games_dir` already resolved to `root/games`. Keep an existing
+    /// library path if the user already has files there.
     pub fn default_for_user() -> Result<Self, PathError> {
         let home = directories::UserDirs::new().ok_or(PathError::NoHomeDirectory)?;
         #[cfg(target_os = "macos")]
@@ -125,8 +129,7 @@ impl Layout {
                 .join("Library")
                 .join("Application Support")
                 .join("Lightforge");
-            let games = home.home_dir().join("Applications");
-            Ok(Self::with_root(support).with_games(Some(games)))
+            Ok(Self::with_root(support))
         }
         #[cfg(not(target_os = "macos"))]
         {

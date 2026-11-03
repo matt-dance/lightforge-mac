@@ -92,7 +92,7 @@ fn flow(app: &mut Lightforge, msg: Msg) -> iced::Task<Message> {
 fn answer(app: &mut Lightforge, msg: Msg) -> iced::Task<Message> {
     match msg {
         Msg::Region(region) => {
-            app.config.region = region;
+            app.config.set_region(region);
             app.save_config();
             // Everything already fetched was fetched against the old region's
             // version service, so the panel has to ask again.

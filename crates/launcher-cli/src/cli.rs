@@ -5,7 +5,7 @@ use crate::*;
 #[derive(Parser)]
 #[command(name = "lightforge", version, about = "Lightforge CLI")]
 pub(crate) struct Cli {
-    /// Override the install root (Linux: ~/Games/Blizzard; macOS: Application Support + ~/Applications).
+    /// Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge).
     #[arg(long, global = true)]
     pub(crate) root: Option<PathBuf>,
 
