@@ -2,6 +2,23 @@
 
 use crate::*;
 
+/// Status shown while Forever's first run on a Mac is still coming up.
+pub(crate) const WOWF_FIRST_LAUNCH_NOTICE: &str =
+    "First launch can take a few minutes while WoW sets itself up; it is not frozen";
+
+/// Whether to tell the user this Play press is Forever's slow first-run setup.
+pub(crate) fn wowf_first_launch_notice(
+    code: &ProductCode,
+    already_done: bool,
+    macos: bool,
+) -> Option<&'static str> {
+    if macos && !already_done && *code == ProductCode::Forever {
+        Some(WOWF_FIRST_LAUNCH_NOTICE)
+    } else {
+        None
+    }
+}
+
 impl Lightforge {
     /// Get out of the way, where the user asked for that.
     ///
@@ -38,13 +55,31 @@ impl Lightforge {
     ) -> Task<Message> {
         let code = self.launching.take().unwrap_or_else(|| self.selected.code.clone());
         self.busy = false;
-        self.status = format!("{} is running", game.name);
+        let keep_notice = self.first_launch_notice;
+        if keep_notice {
+            self.config.macos_wowf_first_launch_done = true;
+            if self.dirs.is_some() {
+                self.save_config();
+            }
+        } else {
+            self.status = format!("{} is running", game.name);
+        }
         self.playing.retain(|s| s.code != code);
+        #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+        let pid = game.pid;
         self.playing.push(Session { code: code.clone(), game: game.clone(), stopping: false });
-        Task::perform(
+        let exit = Task::perform(
             tasks::await_game_exit(self.layout.clone(), code.clone(), game, settle_after),
             move |result| Message::GameExited(code.clone(), result),
-        )
+        );
+        if keep_notice && lightforge_core::host::is_macos() {
+            Task::batch([
+                exit,
+                Task::perform(tasks::wait_for_game_window(pid), |_| Message::GameWindowReady),
+            ])
+        } else {
+            exit
+        }
     }
 
     /// Ask the process table whether the Battle.net client is up.
@@ -184,7 +219,17 @@ impl Lightforge {
         // The long wait starts here; say what it is.
         match what {
             Launch::Game => {
-                self.status = "starting the game…".to_owned();
+                self.first_launch_notice = wowf_first_launch_notice(
+                    &code,
+                    self.config.macos_wowf_first_launch_done,
+                    lightforge_core::host::is_macos(),
+                )
+                .is_some();
+                self.status = if self.first_launch_notice {
+                    WOWF_FIRST_LAUNCH_NOTICE.to_owned()
+                } else {
+                    "starting the game…".to_owned()
+                };
                 Task::batch([
                     Task::perform(
                         tasks::start_game(self.layout.clone(), code.clone()),

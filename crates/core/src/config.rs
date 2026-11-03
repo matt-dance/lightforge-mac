@@ -114,6 +114,10 @@ pub struct Config {
     /// The version whose notes have already been shown. `None` shows them.
     #[serde(default)]
     pub patch_notes_seen: Option<String>,
+    /// Whether Forever's first-launch "WoW is setting itself up" notice has
+    /// already been shown on this Mac. Unused on Linux.
+    #[serde(default)]
+    pub macos_wowf_first_launch_done: bool,
     /// Whether to ask GitHub once per start if a newer Lightforge exists. On
     /// by default, listed in `DISCLAIMER.md`; nothing installs by itself.
     #[serde(default = "yes")]
@@ -193,6 +197,7 @@ impl Default for Config {
             steamos_use: None,
             patch_notes_muted: false,
             patch_notes_seen: None,
+            macos_wowf_first_launch_done: false,
             check_for_updates: true,
             update_seen: None,
             backup_keep: default_backup_keep(),
@@ -664,6 +669,8 @@ mod tests {
         assert!(old.battle_net_minimized);
         // And a config from before the switch leaves the client running.
         assert!(!old.close_battle_net_on_play);
+        // A config from before the Forever first-launch flag shows the notice.
+        assert!(!old.macos_wowf_first_launch_done);
     }
 
     #[test]

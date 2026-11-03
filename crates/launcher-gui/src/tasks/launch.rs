@@ -64,6 +64,64 @@ pub async fn preflight(
 /// Generous: a cold start on a hard drive compiling pipelines still counts.
 pub(crate) const GAME_APPEAR_WITHIN: Duration = Duration::from_secs(180);
 
+/// How long Forever's first window is given before the "not frozen" notice
+/// drops. Matches a cold first-run setup of a couple of minutes, with slack.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) const FIRST_WINDOW_WITHIN: Duration = Duration::from_secs(240);
+
+/// Block until `pid` has an on-screen window, or [`FIRST_WINDOW_WITHIN`].
+///
+/// On Linux this returns immediately: the notice is macOS-only.
+pub async fn wait_for_game_window(pid: u32) {
+    let _ = tokio::task::spawn_blocking(move || {
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = pid;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let deadline = Instant::now() + FIRST_WINDOW_WITHIN;
+            while Instant::now() < deadline {
+                if pid_has_on_screen_window(pid) {
+                    return;
+                }
+                std::thread::sleep(WATCH_POLL);
+            }
+        }
+    })
+    .await;
+}
+
+/// Whether `pid` owns a normal on-screen window (not a status item).
+///
+/// Uses CoreGraphics through JXA so we do not need Accessibility TCC.
+/// Window *names* may be redacted; owner PID and bounds are enough.
+#[cfg(target_os = "macos")]
+fn pid_has_on_screen_window(pid: u32) -> bool {
+    let script = format!(
+        "ObjC.import('CoreGraphics');\
+         var list = ObjC.deepUnwrap($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, $.kCGNullWindowID)) || [];\
+         list.some(function (w) {{\
+           return w.kCGWindowOwnerPID == {pid}\
+             && (w.kCGWindowLayer === 0 || w.kCGWindowLayer === undefined)\
+             && w.kCGWindowBounds\
+             && w.kCGWindowBounds.Width > 64\
+             && w.kCGWindowBounds.Height > 64;\
+         }});"
+    );
+    let output = std::process::Command::new("osascript")
+        .args(["-l", "JavaScript", "-e", &script])
+        .output();
+    match output {
+        Ok(out) if out.status.success() => {
+            String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .eq_ignore_ascii_case("true")
+        }
+        _ => false,
+    }
+}
+
 /// Counts launches, so a wind-down from a finished session can tell whether a
 /// newer one has started since.
 ///

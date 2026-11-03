@@ -1768,3 +1768,68 @@ fn a_settings_report_keeps_env_flags_and_hides_the_rest() {
     assert!(sent.contains("API_TOKEN = \"(hidden)\""), "{sent}");
     assert!(!sent.contains("ghp_"));
 }
+
+#[test]
+fn forever_first_launch_notice_is_only_for_wowf_on_a_mac() {
+    assert_eq!(
+        app::wowf_first_launch_notice(&ProductCode::Forever, false, true),
+        Some(app::WOWF_FIRST_LAUNCH_NOTICE)
+    );
+    assert!(app::wowf_first_launch_notice(&ProductCode::Forever, true, true).is_none());
+    assert!(app::wowf_first_launch_notice(&ProductCode::Forever, false, false).is_none());
+    assert!(app::wowf_first_launch_notice(&ProductCode::Retail, false, true).is_none());
+}
+
+#[test]
+fn forever_first_launch_keeps_the_notice_until_the_window_is_ready() {
+    let (mut app, _) = Lightforge::new();
+    app.dirs = None;
+    app.queue.clear();
+    app.selected = Choice {
+        code: ProductCode::Forever,
+        label: "World of Warcraft: Forever".to_owned(),
+    };
+    app.first_launch_notice = true;
+    app.status = app::WOWF_FIRST_LAUNCH_NOTICE.to_owned();
+    app.busy = true;
+    app.launching = Some(ProductCode::Forever);
+
+    let _ = app.update(Message::GameStarted(Ok(tasks::Started::Up {
+        game: game(1),
+        generation: 1,
+    })));
+    assert_eq!(app.status, app::WOWF_FIRST_LAUNCH_NOTICE);
+    assert!(app.config.macos_wowf_first_launch_done);
+    assert!(app.session(&ProductCode::Forever).is_some());
+
+    let _ = app.update(Message::GameWindowReady);
+    assert!(!app.first_launch_notice);
+    assert_eq!(app.status, "Wow.exe is running");
+}
+
+#[test]
+fn forever_first_launch_notice_does_not_replace_an_exit_status() {
+    let (mut app, _) = Lightforge::new();
+    app.dirs = None;
+    app.queue.clear();
+    app.selected = Choice {
+        code: ProductCode::Forever,
+        label: "World of Warcraft: Forever".to_owned(),
+    };
+    app.first_launch_notice = true;
+    app.status = app::WOWF_FIRST_LAUNCH_NOTICE.to_owned();
+    app.busy = true;
+    app.launching = Some(ProductCode::Forever);
+
+    let _ = app.update(Message::GameStarted(Ok(tasks::Started::Up {
+        game: game(1),
+        generation: 1,
+    })));
+    let _ = app.update(Message::GameExited(
+        ProductCode::Forever,
+        Ok("World of Warcraft exited".to_owned()),
+    ));
+    assert!(!app.first_launch_notice);
+    let _ = app.update(Message::GameWindowReady);
+    assert_eq!(app.status, "World of Warcraft exited");
+}

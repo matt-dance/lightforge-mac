@@ -425,6 +425,9 @@ struct Lightforge {
     /// Games of ours that are up, at most one per product: its tile's PLAY
     /// is STOP until it exits. Another product can still be launched.
     playing: Vec<Session>,
+    /// Forever's first launch on this Mac: keep the "not frozen" status
+    /// until the game window appears (or the wait times out).
+    first_launch_notice: bool,
     stop_dialog: Option<StopDialog>,
     version_dialog: Option<VersionDialog>,
     modify_dialog: Option<ModifyDialog>,

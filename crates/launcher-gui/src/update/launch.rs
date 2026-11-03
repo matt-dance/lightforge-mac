@@ -56,11 +56,28 @@ impl Lightforge {
 
             Message::GameStarted(result) => match result {
                 Ok(tasks::Started::Up { game, generation }) => self.game_up(game, Some(generation)),
-                Ok(tasks::Started::Over(note)) => self.update(Message::Launched(Ok(note))),
-                Err(e) => self.update(Message::Launched(Err(e))),
+                Ok(tasks::Started::Over(note)) => {
+                    self.first_launch_notice = false;
+                    self.update(Message::Launched(Ok(note)))
+                }
+                Err(e) => {
+                    self.first_launch_notice = false;
+                    self.update(Message::Launched(Err(e)))
+                }
             },
 
+            Message::GameWindowReady => {
+                if self.first_launch_notice {
+                    self.first_launch_notice = false;
+                    if let Some(session) = self.playing.last() {
+                        self.status = format!("{} is running", session.game.name);
+                    }
+                }
+                Task::none()
+            }
+
             Message::GameExited(code, result) => {
+                self.first_launch_notice = false;
                 self.playing.retain(|s| s.code != code);
                 if self.stop_dialog.as_ref().is_some_and(|d| d.code == code) {
                     self.stop_dialog = None;
