@@ -16,13 +16,16 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 90
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Lint the signing script
+        run: bash -n packaging/macos/sign.sh
 
       - name: Test
         run: cargo test --workspace --locked
@@ -85,25 +88,74 @@ jobs:
           path: target/dist/Lightforge-*-arm64.dmg
           if-no-files-found: error
 
-      - name: Attach to draft GitHub release
-        uses: softprops/action-gh-release@v2
+      # upload-artifact of a .app directory drops the wrapper. Zip it
+      # only when the sign job will run (never on pull_request).
+      - name: Zip the .app for signing
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        run: ditto -c -k --keepParent target/dist/Lightforge.app target/dist/Lightforge.app.zip
+
+      - name: Upload .app zip
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: macos-unsigned
-          name: macOS (ad-hoc signed)
-          draft: true
-          prerelease: true
-          files: target/dist/Lightforge-*-arm64.dmg
-          body: |
-            Ad-hoc signed Apple Silicon build of Lightforge.
+          name: Lightforge-app
+          path: target/dist/Lightforge.app.zip
+          if-no-files-found: error
 
-            **This is not notarized.** After dragging Lightforge to Applications,
-            open it with right-click → Open the first time, or run:
+  # Developer ID + notarization. Secrets live on the `release` environment
+  # and are never exposed to pull_request (including forks). Missing
+  # secrets fall back to ad-hoc signing and do not fail the job.
+  sign:
+    name: Sign and notarize
+    needs: macos
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: macos-14
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: read
+    env:
+      MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+      MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+      MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@v5
 
-            ```
-            xattr -dr com.apple.quarantine /Applications/Lightforge.app
-            ```
+      - uses: actions/download-artifact@v4
+        with:
+          name: Lightforge-app
+          path: target/dist
 
-            It downloads the native macOS arm64 World of Warcraft: Forever
-            client (`wowf`, OSX tags) and launches `World of Warcraft.app`
-            directly. Login is the in-game Battle.net window; the Battle.net
-            desktop app is not required to sign in or play.
+      - name: Unpack .app
+        run: |
+          set -euo pipefail
+          ditto -x -k target/dist/Lightforge.app.zip target/dist
+          test -d target/dist/Lightforge.app
+
+      - name: Sign
+        id: sign
+        run: packaging/macos/sign.sh sign target/dist/Lightforge.app
+
+      - name: Package DMG
+        run: packaging/macos/dmg.sh target/dist/Lightforge.app
+
+      - name: Notarize
+        id: notarize
+        run: |
+          set -euo pipefail
+          dmg="$(ls target/dist/Lightforge-*-arm64.dmg | head -1)"
+          packaging/macos/sign.sh notarize target/dist/Lightforge.app "$dmg"
+
+      - name: Cleanup keychain
+        if: always()
+        run: packaging/macos/sign.sh cleanup
+
+      - name: Upload signed DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lightforge-macos-arm64-signed
+          path: target/dist/Lightforge-*-arm64.dmg
+          if-no-files-found: error
