@@ -3,6 +3,7 @@
 
 mod init;
 mod launch;
+#[cfg(test)]
 pub(crate) use launch::{wowf_first_launch_notice, WOWF_FIRST_LAUNCH_NOTICE};
 mod library;
 mod nav;
