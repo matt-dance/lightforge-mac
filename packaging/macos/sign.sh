@@ -107,7 +107,7 @@ sign_one() {
     --force \
     --options runtime \
     --timestamp \
-    "${extra[@]}" \
+    ${extra[@]+"${extra[@]}"} \
     --sign "$MACOS_SIGN_IDENTITY" \
     --keychain "$keychain_file" \
     "$path"
