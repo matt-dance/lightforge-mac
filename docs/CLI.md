@@ -375,6 +375,25 @@ Options:
           Print help (see a summary with '-h')
 ```
 
+### `lightforge fixup`
+
+```text
+Re-extract the install-manifest files (the `.app` / CEF tree) and repair macOS bundle layout. Does not re-download the CASC store
+
+Usage: lightforge fixup [OPTIONS] [PATH]
+
+Arguments:
+  [PATH]  Install root. Defaults to the configured product's folder
+
+Options:
+      --product <PRODUCT>  [default: wow]
+      --root <ROOT>        Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
+      --region <REGION>    [default: eu]
+      --locale <LOCALE>    [default: enUS]
+      --local              Only assemble frameworks, set `+x`, and ad-hoc sign. No CDN
+  -h, --help               Print help
+```
+
 ### `lightforge move`
 
 ```text

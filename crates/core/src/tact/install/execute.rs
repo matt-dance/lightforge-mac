@@ -78,8 +78,14 @@ pub async fn execute(
             let flavor_dir = dest.join(&flavor);
             download::write_flavor_info(&flavor_dir, code).map_err(io(&flavor_dir))?;
             // Manifest files have no Unix mode; Mach-O would stay 0644.
+            // On macOS this also rebuilds CEF `Versions/Current` and ad-hoc
+            // signs the bundles so BlizzardBrowser can launch.
             let fixup = crate::macos_install::prepare_tree(&flavor_dir);
-            if fixup.made_executable > 0 || fixup.cleared_quarantine {
+            if fixup.made_executable > 0
+                || fixup.cleared_quarantine
+                || fixup.assembled_frameworks > 0
+                || fixup.signed > 0
+            {
                 tracing::info!("install launch fixup: {fixup}");
             }
         }

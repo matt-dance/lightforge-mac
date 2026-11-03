@@ -425,6 +425,21 @@ pub(crate) enum Command {
         /// Install root. Defaults to the managed WoW install.
         path: Option<PathBuf>,
     },
+    /// Re-extract the install-manifest files (the `.app` / CEF tree) and
+    /// repair macOS bundle layout. Does not re-download the CASC store.
+    Fixup {
+        /// Install root. Defaults to the configured product's folder.
+        path: Option<PathBuf>,
+        #[arg(long, default_value = "wow", value_parser = commands::product_code)]
+        product: ProductCode,
+        #[arg(long, default_value = "eu")]
+        region: String,
+        #[arg(long, default_value = "enUS")]
+        locale: String,
+        /// Only assemble frameworks, set `+x`, and ad-hoc sign. No CDN.
+        #[arg(long)]
+        local: bool,
+    },
     /// Move a game to another library without downloading it again. Prints
     /// the plan unless `--yes` is given.
     Move {

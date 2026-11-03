@@ -332,8 +332,8 @@ pub(crate) enum Message {
     GameLanguage(String),
     /// The download region, from Settings. Distinct from the wizard's pick.
     GameRegion(lightforge_core::tact::version::Region),
-    /// Find an existing install on disk, or fix +x / quarantine on one that
-    /// is already known.
+    /// Find an existing install on disk, or re-extract the `.app` / CEF
+    /// tree and repair bundle layout on one that is already known.
     LocateOrVerify,
     /// A folder the user picked for [`Message::LocateOrVerify`].
     LocatedFolder(Option<PathBuf>),

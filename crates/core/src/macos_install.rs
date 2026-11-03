@@ -2,18 +2,28 @@
 //!
 //! The install manifest has no Unix mode bits, so extracted Mach-O binaries
 //! land `0644`. Gatekeeper also stamps `com.apple.quarantine` on files that
-//! arrived over the network. This module sets `+x` on Mach-O and `#!`
-//! helpers, clears quarantine, and checks each `.app` with `codesign`.
+//! arrived over the network. TACT lists CEF as a *shallow* framework
+//! (`Resources/`, `Libraries/` at the top), while dyld and the in-game
+//! Battle.net browser expect the versioned layout (`Versions/A` + `Current`).
+//!
+//! This module:
+//!
+//! 1. Rebuilds `.framework` trees in place (no re-download).
+//! 2. Sets `+x` on Mach-O and `#!` helpers.
+//! 3. Clears quarantine.
+//! 4. Ad-hoc signs every `.app` / `.framework` so helpers can launch even
+//!    when the shipped `CodeResources` no longer matches (data files in
+//!    `Contents/MacOS`, missing framework symlinks).
 //!
 //! The CASC store under `Data/` is skipped: a million archived blobs are not
-//! executables.
+//! executables, and an 85 GB repair must not walk them.
 
 use std::fs::File;
 use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-/// Directories that never hold a client binary.
+/// Directories that never hold a client binary or a CEF framework.
 const SKIP: &[&str] = &[
     "Data",
     "Cache",
@@ -30,16 +40,34 @@ const SKIP: &[&str] = &[
 pub struct Report {
     pub made_executable: usize,
     pub already_executable: usize,
+    pub assembled_frameworks: usize,
+    pub signed: usize,
     pub cleared_quarantine: bool,
     pub codesign_ok: usize,
     pub codesign_failed: usize,
+    /// Install-manifest files rewritten by a CDN repair. Zero for a local pass.
+    pub extracted: usize,
+    pub extract_failed: usize,
 }
 
 impl std::fmt::Display for Report {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.extracted > 0 || self.extract_failed > 0 {
+            write!(f, "re-extracted {} install files", self.extracted)?;
+            if self.extract_failed > 0 {
+                write!(f, " ({} failed)", self.extract_failed)?;
+            }
+            write!(f, ", ")?;
+        }
         write!(f, "set +x on {} files", self.made_executable)?;
         if self.already_executable > 0 {
             write!(f, " ({} already executable)", self.already_executable)?;
+        }
+        if self.assembled_frameworks > 0 {
+            write!(f, ", assembled {} framework(s)", self.assembled_frameworks)?;
+        }
+        if self.signed > 0 {
+            write!(f, ", ad-hoc signed {}", self.signed)?;
         }
         if self.cleared_quarantine {
             write!(f, ", cleared quarantine")?;
@@ -80,28 +108,32 @@ pub fn install_file_mode(bytes: &[u8]) -> u32 {
     }
 }
 
-/// Whether the product's launch binary is present and lacks `+x`.
+/// Whether the product's launch binary is present and lacks `+x`, or a CEF
+/// framework is still in the shallow TACT layout.
 pub fn needs_fixup(install: &Path, code: &crate::product::ProductCode) -> bool {
     let local = crate::state::Local::inspect_at(install, code);
     let Some(exe) = local.executable else {
         return false;
     };
     let binary = crate::paths::launch_binary(&exe);
-    match std::fs::metadata(&binary) {
+    let mode_wrong = match std::fs::metadata(&binary) {
         Ok(meta) if meta.is_file() => meta.permissions().mode() & 0o111 == 0,
         Ok(_) => false,
         Err(_) => true,
-    }
+    };
+    mode_wrong || frameworks_need_assembly(install)
 }
 
-/// Walk `root`, set `+x` on Mach-O / scripts, and on macOS clear quarantine
-/// and verify each `.app` bundle's signature.
+/// Walk `root`, rebuild shallow `.framework` trees, set `+x` on Mach-O /
+/// scripts, and on macOS clear quarantine and ad-hoc sign each bundle.
 pub fn prepare_tree(root: &Path) -> Report {
     let mut report = Report::default();
+    assemble_frameworks(root, &mut report);
     walk(root, &mut report);
     #[cfg(target_os = "macos")]
     {
         report.cleared_quarantine = clear_quarantine(root);
+        adhoc_sign(root, &mut report);
         verify_apps(root, &mut report);
     }
     report
@@ -172,6 +204,173 @@ fn peek_executable(path: &Path) -> bool {
     looks_like_mach_o(&buf[..n]) || looks_like_script(&buf[..n])
 }
 
+/// TACT lists CEF as `framework/Resources` and `framework/Libraries` with no
+/// `Versions/A`. Official CEF (and Xcode 26 dyld) wants:
+///
+/// ```text
+/// Chromium Embedded Framework.framework/
+///   Chromium Embedded Framework -> Versions/Current/…
+///   Libraries -> Versions/Current/Libraries
+///   Resources -> Versions/Current/Resources
+///   Versions/
+///     A/   (the real files)
+///     Current -> A
+/// ```
+///
+/// Moving the extracted files into `Versions/A` and putting relative
+/// symlinks on top is idempotent, and a later extract writes through those
+/// links.
+fn assemble_frameworks(root: &Path, report: &mut Report) {
+    let mut frameworks = Vec::new();
+    collect_frameworks(root, &mut frameworks);
+    for framework in frameworks {
+        match assemble_one(&framework) {
+            Ok(true) => {
+                report.assembled_frameworks += 1;
+                tracing::info!("assembled framework {}", framework.display());
+            }
+            Ok(false) => {}
+            Err(e) => tracing::warn!("could not assemble {}: {e}", framework.display()),
+        }
+    }
+}
+
+fn collect_frameworks(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_dir() {
+            continue;
+        }
+        if SKIP.iter().any(|skip| name.eq_ignore_ascii_case(skip)) {
+            continue;
+        }
+        if is_framework(&path) {
+            out.push(path);
+            continue;
+        }
+        collect_frameworks(&path, out);
+    }
+}
+
+fn is_framework(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("framework"))
+        && path.is_dir()
+}
+
+fn assemble_one(framework: &Path) -> std::io::Result<bool> {
+    let versions = framework.join("Versions");
+    let version_a = versions.join("A");
+    if version_a.is_dir() {
+        return ensure_framework_symlinks(framework);
+    }
+
+    let mut move_names = Vec::new();
+    let Ok(entries) = std::fs::read_dir(framework) else {
+        return Ok(false);
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if name == "Versions" {
+            continue;
+        }
+        move_names.push(name);
+    }
+    if move_names.is_empty() {
+        return Ok(false);
+    }
+
+    // A framework we did not extract (empty shell) is not worth wrapping.
+    let has_payload = move_names.iter().any(|name| {
+        let n = name.to_string_lossy();
+        n.eq_ignore_ascii_case("Resources")
+            || n.eq_ignore_ascii_case("Libraries")
+            || n.eq_ignore_ascii_case("_CodeSignature")
+            || !n.starts_with('.')
+    });
+    if !has_payload {
+        return Ok(false);
+    }
+
+    std::fs::create_dir_all(&version_a)?;
+    for name in &move_names {
+        let from = framework.join(name);
+        let to = version_a.join(name);
+        if to.exists() {
+            continue;
+        }
+        std::fs::rename(&from, &to)?;
+    }
+    ensure_framework_symlinks(framework)?;
+    Ok(true)
+}
+
+fn ensure_framework_symlinks(framework: &Path) -> std::io::Result<bool> {
+    let versions = framework.join("Versions");
+    let version_a = versions.join("A");
+    if !version_a.is_dir() {
+        return Ok(false);
+    }
+    replace_symlink(&versions.join("Current"), Path::new("A"))?;
+
+    let mut changed = false;
+    let Ok(entries) = std::fs::read_dir(&version_a) else {
+        return Ok(false);
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let link = framework.join(&name);
+        let target = Path::new("Versions").join("Current").join(&name);
+        if replace_symlink(&link, &target)? {
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
+/// Create or replace `path` as a symlink to `target`. Returns whether the
+/// link was created or retargeted.
+fn replace_symlink(path: &Path, target: &Path) -> std::io::Result<bool> {
+    if let Ok(meta) = path.symlink_metadata() {
+        if meta.file_type().is_symlink() {
+            if std::fs::read_link(path).ok().as_deref() == Some(target) {
+                return Ok(false);
+            }
+            std::fs::remove_file(path)?;
+        } else if meta.is_dir() {
+            std::fs::remove_dir_all(path)?;
+        } else {
+            std::fs::remove_file(path)?;
+        }
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::os::unix::fs::symlink(target, path)?;
+    Ok(true)
+}
+
+fn frameworks_need_assembly(root: &Path) -> bool {
+    let mut frameworks = Vec::new();
+    collect_frameworks(root, &mut frameworks);
+    frameworks.iter().any(|fw| {
+        let current = fw.join("Versions").join("Current");
+        if current.is_symlink() || current.is_dir() {
+            return false;
+        }
+        fw.join("Resources").is_dir() || fw.join("Libraries").is_dir()
+    })
+}
+
 #[cfg(target_os = "macos")]
 fn clear_quarantine(root: &Path) -> bool {
     let status = std::process::Command::new("xattr")
@@ -192,6 +391,59 @@ fn clear_quarantine(root: &Path) -> bool {
             false
         }
     }
+}
+
+/// Ad-hoc sign every `.app` and `.framework`. Official `CodeResources` is
+/// already invalid after a TACT extract (`icudt78l.dat` lives in
+/// `Contents/MacOS`; CEF is missing `Versions/Current`). `--deep` is not
+/// used: it treats data files next to the Mach-O as unsigned nested code.
+#[cfg(target_os = "macos")]
+fn adhoc_sign(root: &Path, report: &mut Report) {
+    let mut bundles = Vec::new();
+    collect_signable(root, &mut bundles);
+    bundles.sort_by_key(|p| std::cmp::Reverse(p.components().count()));
+    for bundle in bundles {
+        if sign_one(&bundle) {
+            report.signed += 1;
+            tracing::info!("ad-hoc signed {}", bundle.display());
+        } else {
+            tracing::warn!("ad-hoc sign failed for {}", bundle.display());
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn collect_signable(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_dir() {
+            continue;
+        }
+        if SKIP.iter().any(|skip| name.eq_ignore_ascii_case(skip)) {
+            continue;
+        }
+        if crate::paths::is_app_bundle(&path) || is_framework(&path) {
+            out.push(path.clone());
+        }
+        collect_signable(&path, out);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn sign_one(path: &Path) -> bool {
+    let status = std::process::Command::new("codesign")
+        .args(["--force", "--sign", "-"])
+        .arg(path)
+        .status();
+    matches!(status, Ok(status) if status.success())
 }
 
 #[cfg(target_os = "macos")]
@@ -224,27 +476,29 @@ fn verify_apps(dir: &Path, report: &mut Report) {
 
 #[cfg(target_os = "macos")]
 fn verify_one_app(app: &Path, report: &mut Report) {
+    // No `--deep`: `Contents/MacOS/icudt78l.dat` is a data file the official
+    // bundle also ships, and `--deep` reports it as unsigned nested code.
     let output = std::process::Command::new("codesign")
-        .args(["--verify", "--deep", "--verbose=2"])
+        .args(["--verify", "--verbose=2"])
         .arg(app)
         .output();
     match output {
         Ok(output) if output.status.success() => {
             report.codesign_ok += 1;
-            tracing::info!("codesign --verify --deep ok: {}", app.display());
+            tracing::info!("codesign --verify ok: {}", app.display());
         }
         Ok(output) => {
             report.codesign_failed += 1;
             let stderr = String::from_utf8_lossy(&output.stderr);
             tracing::warn!(
-                "codesign --verify --deep failed for {}: {}",
+                "codesign --verify failed for {}: {}",
                 app.display(),
                 stderr.trim()
             );
         }
         Err(e) => {
             report.codesign_failed += 1;
-            tracing::warn!("codesign --verify --deep {}: {e}", app.display());
+            tracing::warn!("codesign --verify {}: {e}", app.display());
         }
     }
 }
@@ -253,6 +507,7 @@ fn verify_one_app(app: &Path, report: &mut Report) {
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::os::unix::fs::symlink;
 
     #[test]
     fn mach_o_magics_are_recognised() {
@@ -310,5 +565,112 @@ mod tests {
         let report = prepare_tree(root.path());
         assert_eq!(report.made_executable, 0);
         assert_eq!(report.already_executable, 1);
+    }
+
+    fn shallow_cef(root: &Path) -> PathBuf {
+        let fw = root
+            .join("Utils")
+            .join("BlizzardBrowser.app")
+            .join("Contents")
+            .join("Frameworks")
+            .join("Chromium Embedded Framework.framework");
+        let resources = fw.join("Resources");
+        let libraries = fw.join("Libraries");
+        std::fs::create_dir_all(&resources).unwrap();
+        std::fs::create_dir_all(&libraries).unwrap();
+        std::fs::write(resources.join("Info.plist"), b"<plist/>").unwrap();
+        std::fs::write(libraries.join("vk_swiftshader_icd.json"), b"{}").unwrap();
+        std::fs::write(fw.join("Chromium Embedded Framework"), [0xCF, 0xFA, 0xED, 0xFE]).unwrap();
+        fw
+    }
+
+    #[test]
+    fn a_shallow_cef_framework_becomes_versioned() {
+        let root = tempfile::tempdir().unwrap();
+        let fw = shallow_cef(root.path());
+
+        let report = prepare_tree(root.path());
+        assert_eq!(report.assembled_frameworks, 1, "{report:?}");
+
+        let current = fw.join("Versions").join("Current");
+        assert!(current.is_symlink(), "Versions/Current must be a symlink");
+        assert_eq!(std::fs::read_link(&current).unwrap(), Path::new("A"));
+
+        let info = fw.join("Resources").join("Info.plist");
+        assert!(info.is_file(), "Resources convenience link must resolve");
+        assert_eq!(std::fs::read(&info).unwrap(), b"<plist/>");
+        assert!(
+            fw.join("Resources").symlink_metadata().unwrap().file_type().is_symlink(),
+            "top-level Resources is a symlink, not a second copy"
+        );
+
+        let binary = fw.join("Chromium Embedded Framework");
+        assert!(binary.is_file());
+        assert!(binary.symlink_metadata().unwrap().file_type().is_symlink());
+        assert_eq!(
+            std::fs::read(&binary).unwrap(),
+            [0xCF, 0xFA, 0xED, 0xFE]
+        );
+
+        // A second pass is a no-op: the files stay where they are.
+        let again = prepare_tree(root.path());
+        assert_eq!(again.assembled_frameworks, 0, "{again:?}");
+        assert_eq!(std::fs::read(&info).unwrap(), b"<plist/>");
+    }
+
+    #[test]
+    fn extract_after_assembly_writes_through_the_symlinks() {
+        let root = tempfile::tempdir().unwrap();
+        let fw = shallow_cef(root.path());
+        prepare_tree(root.path());
+
+        // A later extract resolves the same POSIX path TACT listed; the
+        // convenience symlink must carry the bytes into Versions/A.
+        let dest = fw.join("Resources").join("Info.plist");
+        std::fs::write(&dest, b"<plist updated/>").unwrap();
+        assert_eq!(
+            std::fs::read(fw.join("Versions").join("A").join("Resources").join("Info.plist")).unwrap(),
+            b"<plist updated/>"
+        );
+    }
+
+    #[test]
+    fn an_already_versioned_framework_is_left_with_its_links() {
+        let root = tempfile::tempdir().unwrap();
+        let fw = root.path().join("Foo.framework");
+        let a = fw.join("Versions").join("A");
+        std::fs::create_dir_all(a.join("Resources")).unwrap();
+        std::fs::write(a.join("Resources").join("Info.plist"), b"ok").unwrap();
+        symlink("A", fw.join("Versions").join("Current")).unwrap();
+        symlink("Versions/Current/Resources", fw.join("Resources")).unwrap();
+
+        let report = prepare_tree(root.path());
+        assert_eq!(report.assembled_frameworks, 0, "{report:?}");
+        assert_eq!(
+            std::fs::read(fw.join("Resources").join("Info.plist")).unwrap(),
+            b"ok"
+        );
+    }
+
+    #[test]
+    fn needs_fixup_sees_a_shallow_framework() {
+        let root = tempfile::tempdir().unwrap();
+        let flavor = root.path().join("_forever_");
+        let macos = flavor
+            .join("World of Warcraft.app")
+            .join("Contents")
+            .join("MacOS");
+        std::fs::create_dir_all(&macos).unwrap();
+        let bin = macos.join("World of Warcraft");
+        std::fs::write(&bin, [0xCF, 0xFA, 0xED, 0xFE]).unwrap();
+        std::fs::set_permissions(&bin, PermissionsExt::from_mode(0o755)).unwrap();
+        shallow_cef(&flavor);
+
+        // inspect_at needs .build.info + store files to count as installed,
+        // but needs_fixup only looks at the launch binary and frameworks.
+        let code = crate::product::ProductCode::from("wowf".to_owned());
+        assert!(needs_fixup(root.path(), &code) || frameworks_need_assembly(root.path()));
+        prepare_tree(root.path());
+        assert!(!frameworks_need_assembly(root.path()));
     }
 }

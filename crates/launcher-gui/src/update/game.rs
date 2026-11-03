@@ -62,15 +62,11 @@ impl Lightforge {
                 let code = self.selected.code.clone();
                 if self.local.is_installed() {
                     let install = self.layout.wow_install(&code);
-                    self.status = "verifying the install on disk…".to_owned();
+                    self.status = "repairing app/CEF files (not the 85 GB store)…".to_owned();
+                    let region = self.config.region;
+                    let locale = self.config.locale_for(&code).to_owned();
                     return Ok(Task::perform(
-                        async move {
-                            tokio::task::spawn_blocking(move || {
-                                lightforge_core::macos_install::prepare_install(&install)
-                            })
-                            .await
-                            .map_err(|e| e.to_string())
-                        },
+                        tasks::repair_macos(install, code, region, locale),
                         Message::InstallPrepared,
                     ));
                 }

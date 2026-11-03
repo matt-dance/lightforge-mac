@@ -44,6 +44,7 @@ jobs:
           app=target/dist/Lightforge.app
           "$app/Contents/MacOS/lightforge-gui" --version
           "$app/Contents/MacOS/lightforge" --version
+          "$app/Contents/MacOS/lightforge" fixup --help | grep -F 'CASC store'
           test -f "$app/Contents/Info.plist"
           plutil -lint "$app/Contents/Info.plist"
 

@@ -188,6 +188,66 @@ pub(crate) async fn download(dest: PathBuf, code: ProductCode, region: String, l
     Ok(())
 }
 
+/// Re-extract install-manifest files and/or assemble macOS bundles. Never
+/// opens the CASC store for writing.
+pub(crate) async fn fixup(
+    ctx: Ctx,
+    path: Option<PathBuf>,
+    code: ProductCode,
+    region: String,
+    locale: String,
+    local_only: bool,
+) -> Result<()> {
+    use lightforge_core::net::Http;
+    use lightforge_core::tact::download::Cancel;
+    use lightforge_core::tact::install::{self, Event, Options as InstallOptions};
+    use lightforge_core::tact::version::Region;
+
+    let dest = path.unwrap_or_else(|| ctx.layout.wow_install(&code));
+    println!("install         {}", dest.display());
+
+    if local_only {
+        let report = lightforge_core::macos_install::prepare_install(&dest);
+        println!("fixup           {report}");
+        return Ok(());
+    }
+
+    let region: Region = region.parse().context("parsing --region")?;
+    let options = InstallOptions {
+        region,
+        locale,
+        flavor: lightforge_core::paths::flavor_dir_name(&dest, &code),
+        ..InstallOptions::default()
+    };
+
+    let http = Http::new()?;
+    let cancel = Cancel::new();
+    let mut last_index = 0usize;
+    let mut on_event = move |event: Event| match event {
+        Event::Build { versions_name, .. } => println!("build           {versions_name}"),
+        Event::Indices(step) if step.done - last_index >= 100 || step.done == step.total => {
+            last_index = step.done;
+            println!("  indices {}/{}", step.done, step.total);
+        }
+        Event::Extracted { files, bytes } => {
+            println!(
+                "extracted       {files} files, {:.1} MiB",
+                bytes as f64 / 1048576.0
+            );
+        }
+        Event::InstallFile { path, bytes } => {
+            println!("  {} ({:.1} MiB)", path.display(), bytes as f64 / 1048576.0);
+        }
+        _ => {}
+    };
+
+    let report = install::repair_install_files(&http, &dest, &code, &options, &cancel, &mut on_event)
+        .await
+        .context("re-extracting install files")?;
+    println!("fixup           {report}");
+    Ok(())
+}
+
 pub(crate) async fn cdn_archive(archive: Option<String>, code: ProductCode, region: String, fetch: usize, verify_with: Option<PathBuf>) -> Result<()> {
     use lightforge_core::net::Http;
     use lightforge_core::tact::archive::ArchiveIndex;

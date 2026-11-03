@@ -11,12 +11,14 @@
 mod execute;
 mod locale;
 mod prepare;
+mod repair;
 #[cfg(test)]
 mod tests;
 
 pub use execute::{execute, run};
 pub use locale::{current_locale, locale_name, LOCALES};
 pub use prepare::{offerings, prepare, Offerings, Prepared, StoreProbe};
+pub use repair::repair_install_files;
 
 use std::path::{Path, PathBuf};
 

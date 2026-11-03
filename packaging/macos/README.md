@@ -34,10 +34,13 @@ already used; Lightforge keeps it. Lightforge's own data lives under
 
 A complete install is recognised after relaunch (the `.app` is a
 directory, not a missing binary). If the tile still says Install, the
-cog menu's **Locate / verify existing install** adopts the folder on
-disk and sets `+x` on Mach-O helpers so the bundle can launch. The
-download region is taken from the system locale (Americas → `us`) and
-can be changed under Settings → Downloads.
+cog menu's **Locate / repair existing install** adopts the folder on
+disk. On an install that is already known it re-extracts the `.app` /
+CEF files (not the 85 GB store), rebuilds `Versions/Current` inside
+each `.framework`, sets `+x`, and ad-hoc signs the bundles so
+BlizzardBrowser can show login. The download region is taken from the
+system locale (Americas → `us`) and can be changed under Settings →
+Downloads.
 
 ## Gatekeeper (ad-hoc signature)
 
@@ -56,10 +59,16 @@ Then open it normally. This only needs doing once per copy of the app.
 
 ## Login
 
-Play starts `World of Warcraft.app` with no extra arguments. The game shows
-Battle.net login itself. The Battle.net desktop app is **not** required to
-sign in or play. Features that live only in that app (its own shop, some
-friend-list chrome) are out of scope here; the in-game shop is the game's.
+Play starts `World of Warcraft.app` with no extra arguments (the product
+config lists none). The game shows Battle.net login itself, through
+`Utils/BlizzardBrowser.app`. The Battle.net desktop app is **not**
+required to sign in or play. Features that live only in that app (its
+own shop, some friend-list chrome) are out of scope here; the in-game
+shop is the game's.
+
+If the client reaches the login screen and then aborts, run
+**Locate / repair existing install** (or `lightforge fixup --product wowf --region us`).
+That repairs the CEF framework layout in place.
 
 ## What this package does not do
 

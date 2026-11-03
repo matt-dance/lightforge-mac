@@ -26,8 +26,10 @@ Game files default to
 `~/Library/Application Support/Lightforge/games/World of Warcraft`.
 Lightforge's own data is under the same Application Support folder. An
 existing install there is recognised after relaunch; the cog menu has
-**Locate / verify existing install** if the tile still says Install. Play
-starts `World of Warcraft.app`; login is the in-game Battle.net window.
+**Locate / repair existing install** if the tile still says Install, or
+to repair the `.app` / CEF tree of an install that already launched
+(no 85 GB re-download). Play starts `World of Warcraft.app`; login is
+the in-game Battle.net window.
 Details: [packaging/macos/README.md](packaging/macos/README.md).
 
 ## Debian based (Debian, Ubuntu, Pop!_OS, Mint…)

@@ -176,8 +176,10 @@ pub async fn start_game(layout: Layout, code: ProductCode) -> Result<Started, Pr
 
 /// Start the native macOS client: the Mach-O inside `World of Warcraft.app`.
 ///
-/// No Proton, no prefix, no launch arguments. The game shows Battle.net
-/// login itself, the same way a direct `Wow.exe` launch does on Linux.
+/// No Proton, no prefix. The product config's `launch_arguments` are empty
+/// on macOS (no `-launcherlogin` token). Working directory is the flavor
+/// folder so `Data/` and `Utils/BlizzardBrowser.app` resolve. The game
+/// shows Battle.net login itself once that CEF bundle can launch.
 fn start_native(layout: Layout, code: ProductCode, exe: PathBuf) -> Result<Started, Problem> {
     back_up_before_launch(&layout, &code);
 
