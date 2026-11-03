@@ -1,16 +1,59 @@
 //! Asking the desktop session for things: no sleep while the store is being
 //! written, and a word when a download ends out of sight.
 
-use std::collections::HashMap;
-use std::os::fd::OwnedFd;
 use std::sync::Arc;
 
-use ashpd::zbus::{self, zvariant};
+/// Holds the machine awake until dropped. Linux: a logind inhibit fd.
+/// macOS: a `caffeinate` child killed on drop.
+pub struct SleepLock {
+    #[cfg(target_os = "linux")]
+    _fd: Arc<std::os::fd::OwnedFd>,
+    #[cfg(target_os = "macos")]
+    child: std::sync::Mutex<Option<std::process::Child>>,
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    _unused: (),
+}
 
-/// Hold off suspend, an idle one included, until the descriptor is dropped.
-/// logind's lock rather than the portal's: it also holds in Steam's Game Mode,
-/// where no portal backend implements Inhibit.
-pub async fn keep_awake(why: &'static str) -> Result<Arc<OwnedFd>, String> {
+impl std::fmt::Debug for SleepLock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SleepLock")
+    }
+}
+
+impl Drop for SleepLock {
+    fn drop(&mut self) {
+        #[cfg(target_os = "macos")]
+        if let Ok(mut child) = self.child.lock() {
+            if let Some(mut child) = child.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+}
+
+/// Hold off suspend, an idle one included, until the lock is dropped.
+pub async fn keep_awake(why: &'static str) -> Result<Arc<SleepLock>, String> {
+    #[cfg(target_os = "linux")]
+    {
+        linux_keep_awake(why).await
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos_keep_awake(why)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = why;
+        Err("no sleep lock on this OS".to_owned())
+    }
+}
+
+#[cfg(target_os = "linux")]
+async fn linux_keep_awake(why: &'static str) -> Result<Arc<SleepLock>, String> {
+    use ashpd::zbus::{self, zvariant};
+    use std::os::fd::OwnedFd;
+
     let system = zbus::Connection::system().await.map_err(|e| format!("system bus: {e}"))?;
     let reply = system
         .call_method(
@@ -23,15 +66,47 @@ pub async fn keep_awake(why: &'static str) -> Result<Arc<OwnedFd>, String> {
         .await
         .map_err(|e| format!("logind refused the sleep lock: {e}"))?;
     let lock: zvariant::OwnedFd = reply.body().deserialize().map_err(|e| format!("logind's reply: {e}"))?;
-    Ok(Arc::new(lock.into()))
+    let fd: OwnedFd = lock.into();
+    Ok(Arc::new(SleepLock { _fd: Arc::new(fd) }))
+}
+
+#[cfg(target_os = "macos")]
+fn macos_keep_awake(why: &'static str) -> Result<Arc<SleepLock>, String> {
+    let child = std::process::Command::new("caffeinate")
+        .args(["-dimsu", "-w"])
+        .arg(std::process::id().to_string())
+        .spawn()
+        .map_err(|e| format!("caffeinate: {e}"))?;
+    tracing::info!("holding sleep with caffeinate ({why})");
+    Ok(Arc::new(SleepLock {
+        child: std::sync::Mutex::new(Some(child)),
+    }))
 }
 
 /// Show a desktop notification. Best effort: a session without a
 /// notification server (gamescope) just goes without.
 pub async fn notify(summary: String, body: String) {
+    #[cfg(target_os = "linux")]
+    {
+        linux_notify(summary, body).await;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos_notify(&summary, &body);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        tracing::info!("notify: {summary}: {body}");
+    }
+}
+
+#[cfg(target_os = "linux")]
+async fn linux_notify(summary: String, body: String) {
+    use ashpd::zbus::{self, zvariant};
+    use std::collections::HashMap;
+
     let sent = async {
         let session = zbus::Connection::session().await?;
-        // Lets the server use the app's own name and icon.
         let hints = HashMap::from([("desktop-entry", zvariant::Value::from(crate::APP_ID))]);
         session
             .call_method(
@@ -45,6 +120,21 @@ pub async fn notify(summary: String, body: String) {
             .map(drop)
     };
     if let Err(e) = sent.await {
+        tracing::warn!("no desktop notification for \"{summary}\": {e}");
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_notify(summary: &str, body: &str) {
+    let script = format!(
+        "display notification \"{}\" with title \"{}\"",
+        body.replace('\\', "\\\\").replace('"', "\\\""),
+        summary.replace('\\', "\\\\").replace('"', "\\\""),
+    );
+    if let Err(e) = std::process::Command::new("osascript")
+        .args(["-e", &script])
+        .status()
+    {
         tracing::warn!("no desktop notification for \"{summary}\": {e}");
     }
 }

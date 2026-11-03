@@ -56,6 +56,9 @@ open = "5"
 # than the default `tokio` feature only to leave zbus exactly as iced already
 # builds it, so this adds no second D-Bus stack.
 ashpd = { version = "0.12", default-features = false, features = ["async-std"] }
+# macOS file dialogs. Not used on Linux: `rfd`'s libdbus call hangs inside
+# the iced process (see launcher-gui `pick.rs`).
+rfd = { version = "0.15", default-features = false, features = ["tokio"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
 sha2 = "0.10"
 # Default features are deliberately off, and **no transport feature at all**:

@@ -104,9 +104,10 @@ impl ProductCode {
         }
     }
 
-    /// The game binary this product is expected to ship, by name only.
+    /// The Windows game binary this product is expected to ship, by name only.
     ///
     /// A hint; [`crate::paths::game_executable`] prefers what is on disk.
+    /// macOS uses [`Self::macos_executable`].
     pub fn executable(&self) -> &str {
         match self {
             // `wowf`'s product config names `Wow.exe`, not a Classic name.
@@ -116,6 +117,19 @@ impl ProductCode {
             }
             Self::Beta | Self::ClassicBeta => "WowB.exe",
             Self::Custom(_) => "Wow.exe",
+        }
+    }
+
+    /// The macOS `.app` this product is expected to ship.
+    ///
+    /// Forever, retail and the PTRs all use `World of Warcraft.app` inside
+    /// their flavor folder; Classic-line titles use the Classic bundle.
+    pub fn macos_executable(&self) -> &str {
+        match self {
+            Self::Classic | Self::ClassicEra | Self::ClassicPtr | Self::EraPtr => {
+                "World of Warcraft Classic.app"
+            }
+            _ => "World of Warcraft.app",
         }
     }
 
@@ -794,6 +808,7 @@ mod tests {
         let code: ProductCode = "wowf".parse().unwrap();
         assert_eq!(code, ProductCode::Forever);
         assert_eq!(code.executable(), "Wow.exe");
+        assert_eq!(code.macos_executable(), "World of Warcraft.app");
         assert_eq!(code.line(), ProductLine::Forever);
         assert_eq!(code.branch(), Branch::Live);
         assert_eq!(ProductLine::Forever.head(), ProductCode::Forever, "live leads, the beta is retired");

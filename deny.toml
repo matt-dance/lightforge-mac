@@ -8,13 +8,14 @@ yanked = "deny"
 # only arrive transitively; a notice about them is nothing this repo can act on.
 unmaintained = "workspace"
 ignore = [
-    # zip 2.x. All three are about `ZipArchive::extract` and
-    # `ZipStreamReader::extract` restoring symlinks and Unix modes. Addons are
-    # unpacked entry by entry in addons/install.rs: `enclosed_name` paths only,
-    # written with `File::create`, no symlinks and no permissions applied.
+    # zip 2.x. These are about `ZipArchive::extract` and
+    # `ZipStreamReader::extract`. Addons are unpacked entry by entry in
+    # addons/install.rs: `enclosed_name` paths only, written with
+    # `File::create`, no `extract()`, no symlinks, no permissions applied.
     { id = "RUSTSEC-2026-0367", reason = "extract() is never called, archive modes are never applied" },
     { id = "RUSTSEC-2026-0368", reason = "extract() is never called, no symlink is ever created from an archive" },
     { id = "RUSTSEC-2026-0369", reason = "extract() is never called, archive modes are never applied" },
+    { id = "RUSTSEC-2026-0429", reason = "ZipArchive::extract is never called; addons unpack entry by entry" },
 ]
 
 [licenses]

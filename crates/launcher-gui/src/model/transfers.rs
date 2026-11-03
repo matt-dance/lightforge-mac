@@ -2,15 +2,15 @@
 
 use crate::*;
 
-/// logind's sleep lock, held while anything writes a store; see
-/// [`tasks::keep_awake`]. Dropping the descriptor releases it.
+/// Sleep lock, held while anything writes a store; see
+/// [`tasks::keep_awake`]. Dropping it lets the machine sleep again.
 #[derive(Debug, Default)]
 pub(crate) enum Awake {
     #[default]
     Off,
     Asking,
-    Held(#[allow(dead_code, reason = "kept for its drop, which releases the lock")] Arc<std::os::fd::OwnedFd>),
-    /// Refused once (no logind), not asked again this session.
+    Held(#[allow(dead_code, reason = "kept for its drop, which releases the lock")] Arc<crate::tasks::SleepLock>),
+    /// Refused once (no logind / caffeinate), not asked again this session.
     Unavailable,
 }
 

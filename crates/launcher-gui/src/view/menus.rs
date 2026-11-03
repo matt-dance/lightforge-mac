@@ -368,6 +368,7 @@ impl Lightforge {
                 item("Show in Explorer", Message::ShowInExplorer, installed),
                 item("Game Version", Message::AskGameVersion, installed),
                 item("Scan and Repair", Message::ScanAndRepair, can.scan),
+                item("Locate / repair existing install", Message::LocateOrVerify, !self.locked()),
                 item("Check for Updates", Message::CheckForUpdates, !self.locked()),
             ]
             .extend(

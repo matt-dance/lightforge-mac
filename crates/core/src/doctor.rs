@@ -64,15 +64,50 @@ fn check(name: impl Into<String>, status: Status, detail: impl Into<String>, hin
 }
 
 pub fn run(config: &Config, layout: &Layout, proton_dir: &Path) -> Vec<Check> {
-    let mut checks = vec![open_files(), ntsync(), vulkan(), loader(), gnutls()];
+    let mut checks = vec![open_files()];
+    #[cfg(not(target_os = "macos"))]
+    {
+        checks.push(ntsync());
+        checks.push(vulkan());
+        checks.push(loader());
+        checks.push(gnutls());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        checks.push(macos_version());
+        let _ = (config, proton_dir);
+    }
     checks.extend(libraries(layout));
-    checks.push(proton(config, proton_dir));
-    checks.push(python());
-    checks.push(prefix(layout));
-    if let Some(version) = crate::debug::nvidia_version() {
-        checks.extend(nvidia(&version));
+    #[cfg(not(target_os = "macos"))]
+    {
+        checks.push(proton(config, proton_dir));
+        checks.push(python());
+        checks.push(prefix(layout));
+        if let Some(version) = crate::debug::nvidia_version() {
+            checks.extend(nvidia(&version));
+        }
     }
     checks
+}
+
+#[cfg(target_os = "macos")]
+fn macos_version() -> Check {
+    let product = plist_value("/System/Library/CoreServices/SystemVersion.plist", "ProductName")
+        .unwrap_or_else(|| "macOS".to_owned());
+    let version = plist_value("/System/Library/CoreServices/SystemVersion.plist", "ProductVersion")
+        .unwrap_or_else(|| "unknown".to_owned());
+    check("macos", Status::Ok, format!("{product} {version}"), None)
+}
+
+#[cfg(target_os = "macos")]
+fn plist_value(path: &str, key: &str) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let needle = format!("<key>{key}</key>");
+    let after = text.split_once(&needle)?.1;
+    let start = after.find("<string>")? + "<string>".len();
+    let rest = &after[start..];
+    let end = rest.find("</string>")?;
+    Some(rest[..end].trim().to_owned())
 }
 
 /// The plain-text report, for a terminal or a pasted bug report.
@@ -88,8 +123,8 @@ pub fn render(checks: &[Check]) -> String {
 }
 
 fn open_files() -> Check {
-    let Some((soft, hard)) = std::fs::read_to_string("/proc/self/limits").ok().as_deref().and_then(nofile) else {
-        return check("open files", Status::Warn, "could not read /proc/self/limits", None);
+    let Some((soft, hard)) = rlimit_nofile() else {
+        return check("open files", Status::Warn, "could not read the open-file limit", None);
     };
     let show = |n: u64| if n == u64::MAX { "unlimited".to_owned() } else { n.to_string() };
     let detail = format!("soft {}, hard {}", show(soft), show(hard));
@@ -108,7 +143,17 @@ fn open_files() -> Check {
     }
 }
 
+fn rlimit_nofile() -> Option<(u64, u64)> {
+    let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: getrlimit writes a rlimit we own.
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) } != 0 {
+        return None;
+    }
+    Some((lim.rlim_cur, lim.rlim_max))
+}
+
 /// Soft and hard `Max open files` from `/proc/<pid>/limits`.
+#[cfg(test)]
 fn nofile(limits: &str) -> Option<(u64, u64)> {
     let line = limits.lines().find(|l| l.starts_with("Max open files"))?;
     let mut values = line["Max open files".len()..].split_whitespace().map(|v| match v {

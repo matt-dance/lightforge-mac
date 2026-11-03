@@ -76,7 +76,7 @@ pub(super) fn adopt_taken(app: &mut Lightforge) {
 /// Add one found install to the config, in place.
 ///
 /// Returns every line worth showing: adopted, and why Battle.net cannot see it.
-fn adopt_one(app: &mut Lightforge, install: &WowInstall) -> Result<Vec<Note>, String> {
+pub(crate) fn adopt_one(app: &mut Lightforge, install: &WowInstall) -> Result<Vec<Note>, String> {
     let mut notes = Vec::new();
 
     let (id, label) = match discover::plan(install, &app.config.libraries) {

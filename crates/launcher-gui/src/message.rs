@@ -150,8 +150,8 @@ pub(crate) enum Message {
     Primary,
     Tick,
     Downloaded(ProductCode, Result<Box<Complete>, Problem>),
-    /// logind's answer to [`tasks::keep_awake`].
-    KeptAwake(Result<Arc<std::os::fd::OwnedFd>, String>),
+    /// The desktop's answer to [`tasks::keep_awake`].
+    KeptAwake(Result<Arc<crate::tasks::SleepLock>, String>),
     CloseRequested(iced::window::Id),
     /// A launch ended without a game of its own to watch: the client was
     /// opened, the hand-off came to nothing, or it failed.
@@ -330,6 +330,15 @@ pub(crate) enum Message {
     PauseWhilePlaying(bool),
     /// The setup language, from Settings: what new games download in.
     GameLanguage(String),
+    /// The download region, from Settings. Distinct from the wizard's pick.
+    GameRegion(lightforge_core::tact::version::Region),
+    /// Find an existing install on disk, or re-extract the `.app` / CEF
+    /// tree and repair bundle layout on one that is already known.
+    LocateOrVerify,
+    /// A folder the user picked for [`Message::LocateOrVerify`].
+    LocatedFolder(Option<PathBuf>),
+    /// The macOS launch fixup finished.
+    InstallPrepared(Result<lightforge_core::macos_install::Report, String>),
     /// Whether the launcher gets out of the way once a game is up.
     MinimizeOnLaunch(bool),
     /// An interface size was picked in Settings › General.

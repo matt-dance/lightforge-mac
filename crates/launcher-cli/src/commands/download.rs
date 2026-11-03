@@ -188,6 +188,66 @@ pub(crate) async fn download(dest: PathBuf, code: ProductCode, region: String, l
     Ok(())
 }
 
+/// Re-extract install-manifest files and/or assemble macOS bundles. Never
+/// opens the CASC store for writing.
+pub(crate) async fn fixup(
+    ctx: Ctx,
+    path: Option<PathBuf>,
+    code: ProductCode,
+    region: String,
+    locale: String,
+    local_only: bool,
+) -> Result<()> {
+    use lightforge_core::net::Http;
+    use lightforge_core::tact::download::Cancel;
+    use lightforge_core::tact::install::{self, Event, Options as InstallOptions};
+    use lightforge_core::tact::version::Region;
+
+    let dest = path.unwrap_or_else(|| ctx.layout.wow_install(&code));
+    println!("install         {}", dest.display());
+
+    if local_only {
+        let report = lightforge_core::macos_install::prepare_install(&dest);
+        println!("fixup           {report}");
+        return Ok(());
+    }
+
+    let region: Region = region.parse().context("parsing --region")?;
+    let options = InstallOptions {
+        region,
+        locale,
+        flavor: lightforge_core::paths::flavor_dir_name(&dest, &code),
+        ..InstallOptions::default()
+    };
+
+    let http = Http::new()?;
+    let cancel = Cancel::new();
+    let mut last_index = 0usize;
+    let mut on_event = move |event: Event| match event {
+        Event::Build { versions_name, .. } => println!("build           {versions_name}"),
+        Event::Indices(step) if step.done - last_index >= 100 || step.done == step.total => {
+            last_index = step.done;
+            println!("  indices {}/{}", step.done, step.total);
+        }
+        Event::Extracted { files, bytes } => {
+            println!(
+                "extracted       {files} files, {:.1} MiB",
+                bytes as f64 / 1048576.0
+            );
+        }
+        Event::InstallFile { path, bytes } => {
+            println!("  {} ({:.1} MiB)", path.display(), bytes as f64 / 1048576.0);
+        }
+        _ => {}
+    };
+
+    let report = install::repair_install_files(&http, &dest, &code, &options, &cancel, &mut on_event)
+        .await
+        .context("re-extracting install files")?;
+    println!("fixup           {report}");
+    Ok(())
+}
+
 pub(crate) async fn cdn_archive(archive: Option<String>, code: ProductCode, region: String, fetch: usize, verify_with: Option<PathBuf>) -> Result<()> {
     use lightforge_core::net::Http;
     use lightforge_core::tact::archive::ArchiveIndex;
@@ -333,11 +393,11 @@ pub(crate) async fn cdn_fetch(code: ProductCode, region: String, hash: Option<St
 
 // One parameter per command-line flag.
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn plan(dest: PathBuf, code: ProductCode, region: String, locale: String, flavor: String, cpu: Option<String>, explain: bool, optional: Vec<String>, limit_archives: Option<usize>, concurrency: usize) -> Result<()> {
+pub(crate) async fn plan(dest: PathBuf, code: ProductCode, region: String, locale: String, flavor: String, cpu: Option<String>, os: Option<String>, explain: bool, optional: Vec<String>, limit_archives: Option<usize>, concurrency: usize) -> Result<()> {
     use lightforge_core::net::Http;
     use lightforge_core::tact::explain as tact_explain;
     use lightforge_core::tact::storage::Storage;
-    use lightforge_core::tact::install::{self, Cpu, Event, Options as InstallOptions};
+    use lightforge_core::tact::install::{self, Cpu, Event, Options as InstallOptions, Os};
     use lightforge_core::tact::version::Region;
 
     let region: Region = region.parse().context("parsing --region")?;
@@ -347,11 +407,18 @@ pub(crate) async fn plan(dest: PathBuf, code: ProductCode, region: String, local
         Some("arm64" | "aarch64") => Cpu::Arm64,
         Some(other) => anyhow::bail!("unknown --cpu `{other}` (x86_64 or arm64)"),
     };
+    let os = match os.as_deref() {
+        None => Os::host(),
+        Some("windows" | "win") => Os::Windows,
+        Some("osx" | "mac" | "macos") => Os::Osx,
+        Some(other) => anyhow::bail!("unknown --os `{other}` (windows or osx)"),
+    };
     let gib = |b: u64| b as f64 / 1024f64.powi(3);
 
     let options = InstallOptions {
         region,
         cpu,
+        os,
         locale,
         flavor,
         concurrency,
@@ -380,6 +447,8 @@ pub(crate) async fn plan(dest: PathBuf, code: ProductCode, region: String, local
     let prepared =
         install::prepare(&http, &dest, &code, &options, &mut on_event).await?;
 
+    println!("tags            {}", prepared.tag_column);
+    println!("flavor          {}", prepared.flavor);
     match prepared.executable.as_deref() {
         // The selected install files are what lands in the flavor folder.
         Some(name) => {

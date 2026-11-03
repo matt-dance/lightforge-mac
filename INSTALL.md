@@ -2,10 +2,66 @@
 
 There's a package for Debian/Ubuntu, a COPR repository and a package for
 Fedora, a PKGBUILD for Arch, an installer for SteamOS, Bazzite and
-everything else, and an AppImage. You can also build it yourself: it's a Rust program with
+everything else, and an AppImage. This fork also ships a **macOS Apple
+Silicon** disk image. You can also build it yourself: it's a Rust program with
 very few dependencies, so that takes three commands and a few minutes.
 
-Everything below installs the same two binaries, the menu entry and the icons.
+Everything below installs the same two binaries, the menu entry and the icons
+(Linux) or a `.app` inside a DMG (macOS).
+
+## macOS (Apple Silicon)
+
+This fork is an unofficial Mac port of
+[LightforgeProject/lightforge](https://github.com/LightforgeProject/lightforge).
+It is not affiliated with Blizzard Entertainment. Installing World of
+Warcraft outside Battle.net may conflict with Blizzard's terms of
+service. Use at your own risk. Licensed under [GPL-3.0](LICENSE).
+
+Download `Lightforge-*-arm64.dmg` from the
+[releases page](https://github.com/matt-dance/lightforge-mac/releases).
+Open it, drag **Lightforge** to **Applications**, then start it.
+
+**First launch.** A Developer ID / notarized release opens normally. An
+ad-hoc CI build is blocked by Gatekeeper until you:
+
+- In Finder, right-click Lightforge → **Open** → **Open**, or
+- `xattr -dr com.apple.quarantine /Applications/Lightforge.app`
+
+**First run.** The download region is taken from the system locale
+(Americas → `us`) and can be changed under Settings → Downloads. Press
+**Play** to install or update Forever. Login is the in-game Battle.net
+window (`Utils/BlizzardBrowser.app`); the Battle.net desktop app is not
+required.
+
+**Where files live.**
+
+```text
+~/Library/Application Support/Lightforge/games/World of Warcraft
+    the game (the path a first install already used; Lightforge keeps it)
+~/Library/Application Support/io.Tuxcore.Lightforge
+    Lightforge's own data (config, logs, artwork)
+```
+
+**Updates and patches.** Every game update re-extracts
+`World of Warcraft.app` / `BlizzardBrowser.app` (TACT ships them as a
+shallow tree) and then runs the same macOS fixup as a fresh install:
+assemble CEF `Versions/A` + `Current`, set `+x`, ad-hoc sign, clear
+quarantine. You should not need to repair by hand after a patch.
+
+**If the tile still says Install**, or login aborts after a failed
+extract: cog menu → **Locate / repair existing install**, or:
+
+```bash
+/Applications/Lightforge.app/Contents/MacOS/lightforge fixup --product wowf --region us
+```
+
+That repairs the `.app` / CEF tree in place (no 85 GB re-download).
+`--local` skips the CDN and only reassembles / signs what is already
+on disk.
+
+Details: [packaging/macos/README.md](packaging/macos/README.md).
+Maintainers setting up Developer ID secrets: see
+[Signing and notarization](packaging/macos/README.md#signing-and-notarization).
 
 ## Debian based (Debian, Ubuntu, Pop!_OS, Mint…)
 
@@ -258,8 +314,9 @@ You need `podman` (or `make release CONTAINER=docker`).
 
 The first time, the launcher takes you through a short setup:
 
-1. **Where games should live**: `~/Games/Blizzard` by default. You can add
-   other drives now or later.
+1. **Where games should live**: `~/Games/Blizzard` by default on Linux;
+   on macOS, `~/Library/Application Support/Lightforge` (games under
+   `…/games/World of Warcraft`). You can add other drives now or later.
 2. **Region and language**, so you get the right game version and language.
 3. **A scan for Blizzard games already on this machine.** If you've played
    through Lutris, Bottles, Heroic, Faugus or your own prefix, your installs

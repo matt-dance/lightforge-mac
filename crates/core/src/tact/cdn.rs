@@ -21,10 +21,61 @@
 //! content key, the bytes the game reads. That key comes from a manifest
 //! chain rooted in the build config, which is the security boundary, not TLS.
 
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
 use crate::net::{Http, NetError, MAX_CDN_BYTES};
 
 use crate::text::hex;
 use super::version::Cdn;
+
+/// Failure counts per origin, shared by every [`Client`] in this process.
+/// Hosts that keep timing out (level3 was the usual one) sink in the order.
+fn host_scores() -> &'static Mutex<HashMap<String, u32>> {
+    static SCORES: OnceLock<Mutex<HashMap<String, u32>>> = OnceLock::new();
+    SCORES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn record_failure(origin: &str) {
+    if let Ok(mut scores) = host_scores().lock() {
+        *scores.entry(origin.to_owned()).or_insert(0) += 1;
+    }
+}
+
+fn record_success(origin: &str) {
+    if let Ok(mut scores) = host_scores().lock() {
+        if let Some(count) = scores.get_mut(origin) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                scores.remove(origin);
+            }
+        }
+    }
+}
+
+fn rank_endpoints(endpoints: &[Endpoint]) -> Vec<&Endpoint> {
+    let scores = host_scores().lock().ok();
+    let mut order: Vec<(u32, usize, &Endpoint)> = endpoints
+        .iter()
+        .enumerate()
+        .map(|(i, endpoint)| {
+            let fails = scores
+                .as_ref()
+                .and_then(|s| s.get(&endpoint.origin).copied())
+                .unwrap_or(0);
+            (fails, i, endpoint)
+        })
+        .collect();
+    order.sort_by_key(|(fails, i, _)| (*fails, *i));
+    order.into_iter().map(|(_, _, endpoint)| endpoint).collect()
+}
+
+#[cfg(test)]
+fn reset_host_scores() {
+    if let Ok(mut scores) = host_scores().lock() {
+        scores.clear();
+    }
+}
 
 /// Where a hash is fetched from within a CDN path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,15 +207,25 @@ impl Client {
         &self.endpoints
     }
 
+    fn ranked(&self) -> Vec<&Endpoint> {
+        rank_endpoints(&self.endpoints)
+    }
+
     /// Fetch a name, trying each endpoint in turn, without checking the bytes:
     /// the caller verifies by the rule for its kind of name (module docs).
     pub async fn fetch(&self, http: &Http, kind: Kind, hash: &str) -> Result<Vec<u8>, CdnError> {
         let mut last: Option<CdnError> = None;
-        for endpoint in &self.endpoints {
+        for endpoint in self.ranked() {
             let url = endpoint.url(kind, hash)?;
             match http.get_bytes(&url, MAX_CDN_BYTES).await {
-                Ok(bytes) => return Ok(bytes),
-                Err(source) => last = Some(endpoint_failed(url, source)),
+                Ok(bytes) => {
+                    record_success(&endpoint.origin);
+                    return Ok(bytes);
+                }
+                Err(source) => {
+                    record_failure(&endpoint.origin);
+                    last = Some(endpoint_failed(url, source));
+                }
             }
         }
         Err(last.unwrap_or(CdnError::NoEndpoints))
@@ -182,21 +243,26 @@ impl Client {
         let expected = parse_md5(hash)?;
         let mut last: Option<CdnError> = None;
 
-        for endpoint in &self.endpoints {
+        for endpoint in self.ranked() {
             let url = endpoint.url(kind, hash)?;
             match http.get_bytes(&url, MAX_CDN_BYTES).await {
                 Ok(bytes) => {
                     let actual = *md5::compute(&bytes);
                     if actual == expected {
+                        record_success(&endpoint.origin);
                         return Ok(bytes);
                     }
+                    record_failure(&endpoint.origin);
                     last = Some(CdnError::HashMismatch {
                         url,
                         expected: hash.to_ascii_lowercase(),
                         found: hex(&actual),
                     });
                 }
-                Err(source) => last = Some(endpoint_failed(url, source)),
+                Err(source) => {
+                    record_failure(&endpoint.origin);
+                    last = Some(endpoint_failed(url, source));
+                }
             }
         }
 
@@ -219,19 +285,29 @@ impl Client {
     ) -> Result<Vec<u8>, CdnError> {
         let mut last: Option<CdnError> = None;
 
-        for endpoint in &self.endpoints {
+        for endpoint in self.ranked() {
             let url = endpoint.index_url(hash)?;
             match http.get_bytes(&url, MAX_CDN_BYTES).await {
                 Ok(bytes) => match expect_size {
                     Some(want) if bytes.len() as u64 != want => {
+                        record_failure(&endpoint.origin);
                         last = Some(CdnError::WrongSize { url, expected: want, found: bytes.len() as u64 });
                     }
                     _ => match super::archive::verify(&bytes, hash) {
-                        Ok(()) => return Ok(bytes),
-                        Err(source) => last = Some(CdnError::BadIndex { url, source }),
+                        Ok(()) => {
+                            record_success(&endpoint.origin);
+                            return Ok(bytes);
+                        }
+                        Err(source) => {
+                            record_failure(&endpoint.origin);
+                            last = Some(CdnError::BadIndex { url, source });
+                        }
                     },
                 },
-                Err(source) => last = Some(endpoint_failed(url, source)),
+                Err(source) => {
+                    record_failure(&endpoint.origin);
+                    last = Some(endpoint_failed(url, source));
+                }
             }
         }
 
@@ -248,11 +324,17 @@ impl Client {
     ) -> Result<Vec<u8>, CdnError> {
         let mut last: Option<CdnError> = None;
 
-        for endpoint in &self.endpoints {
+        for endpoint in self.ranked() {
             let url = endpoint.url(Kind::Data, archive)?;
             match http.get_range(&url, range).await {
-                Ok(bytes) => return Ok(bytes),
-                Err(source) => last = Some(endpoint_failed(url, source)),
+                Ok(bytes) => {
+                    record_success(&endpoint.origin);
+                    return Ok(bytes);
+                }
+                Err(source) => {
+                    record_failure(&endpoint.origin);
+                    last = Some(endpoint_failed(url, source));
+                }
             }
         }
 
@@ -270,11 +352,12 @@ impl Client {
         let hash = hex(ekey);
         let mut last: Option<CdnError> = None;
 
-        for endpoint in &self.endpoints {
+        for endpoint in self.ranked() {
             let url = endpoint.url(Kind::Data, &hash)?;
             let raw = match http.get_bytes(&url, MAX_CDN_BYTES).await {
                 Ok(bytes) => bytes,
                 Err(source) => {
+                    record_failure(&endpoint.origin);
                     last = Some(CdnError::Fetch { url, source });
                     continue;
                 }
@@ -284,15 +367,20 @@ impl Client {
                 Ok(decoded) => {
                     let actual = *md5::compute(&decoded);
                     if &actual == expect_ckey {
+                        record_success(&endpoint.origin);
                         return Ok(decoded);
                     }
+                    record_failure(&endpoint.origin);
                     last = Some(CdnError::HashMismatch {
                         url,
                         expected: hex(expect_ckey),
                         found: hex(&actual),
                     });
                 }
-                Err(e) => last = Some(CdnError::Decode { url, detail: e.to_string() }),
+                Err(e) => {
+                    record_failure(&endpoint.origin);
+                    last = Some(CdnError::Decode { url, detail: e.to_string() });
+                }
             }
         }
 
@@ -311,11 +399,12 @@ impl Client {
         let range = located.range().ok_or_else(|| CdnError::EmptyRange { archive: archive.to_owned() })?;
         let mut last: Option<CdnError> = None;
 
-        for endpoint in &self.endpoints {
+        for endpoint in self.ranked() {
             let url = endpoint.url(Kind::Data, archive)?;
             let raw = match http.get_range(&url, &range).await {
                 Ok(bytes) => bytes,
                 Err(source) => {
+                    record_failure(&endpoint.origin);
                     last = Some(CdnError::Fetch { url, source });
                     continue;
                 }
@@ -326,15 +415,20 @@ impl Client {
                 Ok(decoded) => {
                     let actual = *md5::compute(&decoded);
                     if &actual == expect_ckey {
+                        record_success(&endpoint.origin);
                         return Ok(decoded);
                     }
+                    record_failure(&endpoint.origin);
                     last = Some(CdnError::HashMismatch {
                         url,
                         expected: hex(expect_ckey),
                         found: hex(&actual),
                     });
                 }
-                Err(e) => last = Some(CdnError::Decode { url, detail: e.to_string() }),
+                Err(e) => {
+                    record_failure(&endpoint.origin);
+                    last = Some(CdnError::Decode { url, detail: e.to_string() });
+                }
             }
         }
 
@@ -463,6 +557,26 @@ mod tests {
     fn a_client_needs_at_least_one_endpoint() {
         assert!(matches!(Client::new(Vec::new()), Err(CdnError::NoEndpoints)));
         assert!(Client::from_cdn(&cdn_row()).is_ok());
+    }
+
+    #[test]
+    fn hosts_that_keep_failing_are_tried_last() {
+        reset_host_scores();
+        let good = Endpoint {
+            origin: "https://us.cdn.blizzard.com".into(),
+            path: "tpr/wow".into(),
+        };
+        let bad = Endpoint {
+            origin: "https://level3.ssl.blizzard.com".into(),
+            path: "tpr/wow".into(),
+        };
+        record_failure(&bad.origin);
+        record_failure(&bad.origin);
+        let endpoints = [bad.clone(), good.clone()];
+        let ranked = rank_endpoints(&endpoints);
+        assert_eq!(ranked[0].origin, good.origin);
+        assert_eq!(ranked[1].origin, bad.origin);
+        reset_host_scores();
     }
 
     #[test]

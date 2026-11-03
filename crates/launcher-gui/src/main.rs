@@ -17,6 +17,7 @@ mod fit;
 mod focus;
 mod instance;
 mod pad;
+mod pick;
 mod popover;
 mod provision;
 mod report;
@@ -37,7 +38,7 @@ use format::*;
 use icons::*;
 use message::*;
 use model::*;
-use wizard::LocaleChoice;
+use wizard::{LocaleChoice, RegionChoice};
 use widgets::*;
 
 use std::collections::{HashMap, HashSet};
@@ -67,6 +68,7 @@ use lightforge_core::proton::{self, ProtonPin};
 use lightforge_core::setup::Status as SetupStatus;
 use lightforge_core::storage;
 use lightforge_core::tact::install::Offerings;
+use lightforge_core::tact::version::Region;
 use lightforge_core::transfers::{self, Saved, Standing};
 use lightforge_core::tact::download::Cancel;
 use lightforge_core::tweaks::{HostTools, Tweaks};
@@ -78,7 +80,9 @@ use tasks::{Problem, Refreshed, SharedDownloads, TransferState};
 const ACCOUNT_URL: &str = "https://account.battle.net/games";
 
 /// The desktop entry's basename, Wayland `app_id` and AppStream id, which
-/// must match (`packaging/README.md`).
+/// must match (`packaging/README.md`). Unused on macOS: the bundle id is
+/// Info.plist's, and notifications go through `osascript`.
+#[cfg(target_os = "linux")]
 const APP_ID: &str = "pro.tuxcore.Lightforge";
 
 /// Opening size and resize floor: below it the right-hand column, and PLAY,
@@ -183,9 +187,10 @@ fn main() -> iced::Result {
         decorations: false,
         transparent: true,
         position: iced::window::Position::SpecificWith(fit::centred),
-        // The Wayland `app_id` / X11 `WM_CLASS`: how the compositor finds the
-        // desktop entry, and so the icon.
+        // Wayland `app_id` / X11 `WM_CLASS`. iced's macOS PlatformSpecific
+        // has titlebar fields instead; the bundle id is Info.plist's.
         platform_specific: iced::window::settings::PlatformSpecific {
+            #[cfg(target_os = "linux")]
             application_id: APP_ID.to_owned(),
             ..Default::default()
         },

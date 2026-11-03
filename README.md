@@ -16,6 +16,16 @@
 
 ---
 
+> **Unofficial Mac port.** This repository
+> ([matt-dance/lightforge-mac](https://github.com/matt-dance/lightforge-mac))
+> is a community port of
+> [LightforgeProject/lightforge](https://github.com/LightforgeProject/lightforge)
+> to macOS Apple Silicon. It is not an official LightforgeProject release
+> and is **not affiliated with, endorsed by, or sponsored by Blizzard
+> Entertainment**. Licensed under [GPL-3.0](LICENSE), same as upstream.
+> Installing World of Warcraft outside Battle.net may conflict with
+> Blizzard's terms of service. **Use at your own risk.**
+
 Lightforge installs, patches, verifies and launches World of Warcraft on Linux
 without the Battle.net client. It speaks Blizzard's own distribution protocols
 (TACT and NGDP for the CDN, CASC for local storage), reimplemented in Rust, so
@@ -103,7 +113,40 @@ has its own AppImage and tarball; it is
 chmod +x Lightforge-x86_64.AppImage && ./Lightforge-x86_64.AppImage
 ```
 
-##
+### macOS (Apple Silicon)
+
+Download `Lightforge-*-arm64.dmg` from this fork's
+[releases page](https://github.com/matt-dance/lightforge-mac/releases),
+open it, and drag **Lightforge** to Applications.
+
+**First launch.** A Developer ID / notarized build opens like any other
+app. An ad-hoc CI build is blocked by Gatekeeper until you right-click →
+**Open** the first time, or run:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Lightforge.app
+```
+
+**First run.** The download region is taken from the system locale
+(Americas → `us`) and can be changed under Settings → Downloads. Press
+**Play** to install or update Forever. Game files default to
+`~/Library/Application Support/Lightforge/games/World of Warcraft`.
+Lightforge's own data lives under
+`~/Library/Application Support/io.Tuxcore.Lightforge`.
+
+**Updates.** Every game update or patch re-extracts
+`World of Warcraft.app` / `BlizzardBrowser.app` and then runs the same
+macOS fixup as a fresh install: CEF `Versions/Current`, `+x`, ad-hoc
+sign, clear quarantine. You should not need to repair by hand after a
+patch.
+
+**If the tile still says Install**, or login aborts after a failed
+extract: cog menu → **Locate / repair existing install**, or
+`lightforge fixup --product wowf --region us`. That repairs the `.app` /
+CEF tree in place (no 85 GB re-download).
+
+Details in [INSTALL.md](INSTALL.md#macos-apple-silicon) and
+[packaging/macos/README.md](packaging/macos/README.md).
 
 ### From source
 
@@ -147,7 +190,7 @@ reporter (`☰ › Report a bug`).
 
 | | |
 | --- | --- |
-| **OS** | Any current Linux. glibc 2.35+ for the release binaries. |
+| **OS** | Any current Linux (glibc 2.35+ for the release binaries), or macOS 13+ on Apple Silicon. |
 | **GPU** | Vulkan if you have it; it falls back to software rendering if you don't. |
 | **32-bit** | Only for Battle.net, whose installer and client are 32-bit. WoW alone doesn't need it. |
 
@@ -190,7 +233,11 @@ Steam, Lutris or a system Wine.
   press Send, and you see the whole report first. Every host and what it
   sees is listed in [DISCLAIMER.md](DISCLAIMER.md#what-leaves-your-machine).
 - **WoW first.** Other Blizzard games are installed and run by Battle.net.
-- **Linux only.**
+- **Linux, and macOS on Apple Silicon** in this fork. The Linux build still
+  launches `Wow.exe` through Proton-GE. The macOS build downloads the OSX
+  TACT slice and launches `World of Warcraft.app` directly. See
+  [INSTALL.md](INSTALL.md#macos-apple-silicon) and
+  [packaging/macos/README.md](packaging/macos/README.md).
 
 ## How it was built
 
@@ -246,10 +293,13 @@ Telling someone about it works too. Come say hi on
 ## Legal
 
 Lightforge is an independent, unofficial project, **not affiliated with,
-endorsed by, or sponsored by Blizzard Entertainment**. World of Warcraft,
-Battle.net and Blizzard Entertainment are trademarks of Blizzard
-Entertainment, Inc. Lightforge ships no game content: it downloads from
-Blizzard's own CDN with your own account, the same way their client does. See
+endorsed by, or sponsored by Blizzard Entertainment**. This Mac port is
+likewise unofficial and is not an official LightforgeProject release.
+World of Warcraft, Battle.net and Blizzard Entertainment are trademarks of
+Blizzard Entertainment, Inc. Lightforge ships no game content: it downloads
+from Blizzard's own CDN with your own account, the same way their client
+does. Installing and playing outside Battle.net may conflict with
+Blizzard's terms of service. **Use at your own risk.** See
 [DISCLAIMER.md](DISCLAIMER.md) for the rest.
 
 Licensed under [GPL-3.0](LICENSE).

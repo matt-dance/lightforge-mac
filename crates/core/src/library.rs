@@ -357,6 +357,8 @@ pub struct Partition {
 const GAME_FILESYSTEMS: &[&str] = &[
     "ext2", "ext3", "ext4", "btrfs", "xfs", "f2fs", "jfs", "reiserfs", "nilfs2", "bcachefs",
     "zfs", "vfat", "exfat", "ntfs", "ntfs3", "fuseblk",
+    // macOS
+    "apfs", "hfs", "hfsplus", "ufs", "msdos",
 ];
 
 /// Mount points never offered: the system's own, whatever they hold.
@@ -369,7 +371,7 @@ const SYSTEM_PREFIXES: &[&str] = &[
 
 /// Carved back out of [`SYSTEM_PREFIXES`]: where removable drives are
 /// mounted, which is exactly what this is all for.
-const REMOVABLE_PREFIXES: &[&str] = &["/run/media", "/media"];
+const REMOVABLE_PREFIXES: &[&str] = &["/run/media", "/media", "/Volumes"];
 
 /// Whether a mount point is the system's, not the user's.
 fn is_system_path(point: &Path) -> bool {
@@ -382,14 +384,64 @@ fn is_system_path(point: &Path) -> bool {
     SYSTEM_PREFIXES.iter().any(|p| point.starts_with(p))
 }
 
-/// Every mounted filesystem, from `/proc/self/mounts`.
+/// Every mounted filesystem.
 ///
-/// Read directly, not through `lsblk` or `findmnt`, which immutable images may lack.
+/// Linux: `/proc/self/mounts`, not `lsblk` or `findmnt`, which immutable images may lack.
+/// macOS: `getfsstat(2)`.
 pub fn mounts() -> Vec<Mount> {
-    let Ok(text) = std::fs::read_to_string("/proc/self/mounts") else {
+    #[cfg(target_os = "macos")]
+    {
+        macos_mounts()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let Ok(text) = std::fs::read_to_string("/proc/self/mounts") else {
+            return Vec::new();
+        };
+        text.lines().filter_map(parse_mount).collect()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_mounts() -> Vec<Mount> {
+    let needed = unsafe { libc::getfsstat(std::ptr::null_mut(), 0, libc::MNT_NOWAIT) };
+    let Ok(count) = usize::try_from(needed) else {
         return Vec::new();
     };
-    text.lines().filter_map(parse_mount).collect()
+    if count == 0 {
+        return Vec::new();
+    }
+    let mut buf: Vec<libc::statfs> = Vec::with_capacity(count);
+    let Ok(bytes) = libc::c_int::try_from(count.saturating_mul(std::mem::size_of::<libc::statfs>())) else {
+        return Vec::new();
+    };
+    let filled = unsafe { libc::getfsstat(buf.as_mut_ptr(), bytes, libc::MNT_NOWAIT) };
+    let Ok(n) = usize::try_from(filled) else {
+        return Vec::new();
+    };
+    if n == 0 {
+        return Vec::new();
+    }
+    // SAFETY: getfsstat wrote `n` entries.
+    unsafe { buf.set_len(n) };
+    buf.into_iter()
+        .map(|fs| Mount {
+            device: std::path::PathBuf::from(c_array(&fs.f_mntfromname)),
+            point: std::path::PathBuf::from(c_array(&fs.f_mntonname)),
+            fstype: c_array(&fs.f_fstypename),
+            read_only: (fs.f_flags as u32) & (libc::MNT_RDONLY as u32) != 0,
+        })
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn c_array(buf: &[libc::c_char]) -> String {
+    let bytes: Vec<u8> = buf
+        .iter()
+        .map(|&c| c as u8)
+        .take_while(|&b| b != 0)
+        .collect();
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 fn parse_mount(line: &str) -> Option<Mount> {
@@ -719,6 +771,8 @@ mod tests {
         assert!(!is_system_path(Path::new("/media/games")));
         assert!(!is_system_path(Path::new("/mnt/games")));
         assert!(!is_system_path(Path::new("/home")));
+        assert!(!is_system_path(Path::new("/Volumes/Games")));
+        assert!(GAME_FILESYSTEMS.contains(&"apfs"));
     }
 
     #[test]

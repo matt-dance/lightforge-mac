@@ -14,7 +14,7 @@ $ lightforge --help
 One option applies everywhere:
 
 ```text
---root <ROOT>   Override the Blizzard root (default: ~/Games/Blizzard)
+--root <ROOT>   Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
 ```
 
 Most commands take `--product <CODE>` (`wow`, `wow_classic_era`,
@@ -40,7 +40,7 @@ Print the resolved directory layout
 Usage: lightforge paths [OPTIONS]
 
 Options:
-      --root <ROOT>  Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>  Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
   -h, --help         Print help
 ```
 
@@ -52,7 +52,7 @@ Print the effective configuration as TOML
 Usage: lightforge config [OPTIONS]
 
 Options:
-      --root <ROOT>  Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>  Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
   -h, --help         Print help
 ```
 
@@ -65,7 +65,7 @@ Usage: lightforge doctor [OPTIONS]
 
 Options:
       --json         Print the checks as JSON
-      --root <ROOT>  Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>  Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
   -h, --help         Print help
 ```
 
@@ -78,7 +78,7 @@ Usage: lightforge status [OPTIONS]
 
 Options:
       --product <PRODUCT>  Product code, e.g. `wow` or `wow_classic_era` [default: wow]
-      --root <ROOT>        Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>        Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --region <REGION>    [default: eu]
       --offline            Skip the version service and report what the disk alone implies
   -h, --help               Print help
@@ -96,7 +96,7 @@ Arguments:
 
 Options:
       --product <PRODUCT>  Product code, e.g. `wow` [default: wow]
-      --root <ROOT>        Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>        Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --region <REGION>    Blizzard region to ask [default: eu]
   -h, --help               Print help
 ```
@@ -104,9 +104,9 @@ Options:
 ### `lightforge play`
 
 ```text
-Launch the game directly under Proton, the `[ PLAY ]` path.
+Launch the game, the `[ PLAY ]` path.
 
-Runs pre-flight first, then starts `Wow.exe` through the prefix's Windows-visible path. Battle.net is not involved.
+On Linux this runs pre-flight then starts `Wow.exe` through Proton. On macOS it starts `World of Warcraft.app` directly. Battle.net is not involved.
 
 Usage: lightforge play [OPTIONS]
 
@@ -117,7 +117,7 @@ Options:
           [default: wow]
 
       --root <ROOT>
-          Override the Blizzard root (default: ~/Games/Blizzard)
+          Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
 
       --proton <PROTON>
           Proton build to launch under
@@ -138,7 +138,7 @@ Usage: lightforge preflight [OPTIONS]
 
 Options:
       --proton <PROTON>    Proton build whose `wineserver` shuts the prefix down
-      --root <ROOT>        Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>        Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --product <PRODUCT>  Product the launch is for, so a download can be paused
       --dry-run            Report what would be done without touching anything
       --grace <GRACE>      Seconds a process gets between SIGTERM and SIGKILL [default: 5]
@@ -155,7 +155,7 @@ Report or run first-run provisioning: Proton, prefix, Battle.net
 Usage: lightforge setup [OPTIONS]
 
 Options:
-      --root <ROOT>      Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>      Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --status           Only report what is missing; provision nothing
       --proton <PROTON>  Proton-GE release to install if one is needed
   -h, --help             Print help
@@ -169,7 +169,7 @@ List Proton builds installed on this system
 Usage: lightforge proton [OPTIONS]
 
 Options:
-      --root <ROOT>  Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>  Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
   -h, --help         Print help
 ```
 
@@ -181,7 +181,7 @@ Check upstream Proton-GE releases and report whether a newer one exists
 Usage: lightforge proton-check [OPTIONS]
 
 Options:
-      --root <ROOT>  Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>  Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
   -h, --help         Print help
 ```
 
@@ -196,7 +196,7 @@ Arguments:
   [VERSION]  Release tag, e.g. `GE-Proton11-7`. Defaults to the latest stable
 
 Options:
-      --root <ROOT>  Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>  Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
   -h, --help         Print help
 ```
 
@@ -208,7 +208,7 @@ Report on the shared prefix and the game symlink
 Usage: lightforge prefix [OPTIONS]
 
 Options:
-      --root <ROOT>  Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>  Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
   -h, --help         Print help
 ```
 
@@ -221,7 +221,7 @@ Usage: lightforge prefix-init [OPTIONS]
 
 Options:
       --proton <PROTON>  Proton build to use, e.g. `GE-Proton11-7`. Defaults to the tested build when it is installed, else the newest supported one
-      --root <ROOT>      Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>      Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
   -h, --help             Print help
 ```
 
@@ -233,7 +233,7 @@ Create or repair only the game symlink, without running Proton
 Usage: lightforge prefix-link [OPTIONS]
 
 Options:
-      --root <ROOT>  Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>  Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
   -h, --help         Print help
 ```
 
@@ -247,7 +247,7 @@ Download Battle.net-Setup.exe into the cache
 Usage: lightforge battlenet-fetch [OPTIONS]
 
 Options:
-      --root <ROOT>  Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>  Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
   -h, --help         Print help
 ```
 
@@ -260,7 +260,7 @@ Usage: lightforge battlenet-setup [OPTIONS]
 
 Options:
       --proton <PROTON>        Proton build to run the installer under
-      --root <ROOT>            Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>            Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --locale <LOCALE>        Battle.net UI language [default: enUS]
       --installer <INSTALLER>  Use an already-downloaded installer instead of the cached one
       --timeout <TIMEOUT>      Seconds to wait for the install to appear [default: 600]
@@ -276,7 +276,7 @@ Usage: lightforge battlenet-run [OPTIONS]
 
 Options:
       --proton <PROTON>              Proton build to launch under
-      --root <ROOT>                  Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>                  Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --product <PRODUCT>            Product code to launch, e.g. `wow`. Omit to just open the client
       --exec <EXEC>                  Override the `--exec="launch <uid>"` verb Battle.net is given
       --uri <URI>                    Hand the client a `battlenet://` link instead, the way the system protocol handler does. Takes a game family, e.g. `WTCG`
@@ -301,7 +301,7 @@ Options:
       --product <PRODUCT>
           [default: wow]
       --root <ROOT>
-          Override the Blizzard root (default: ~/Games/Blizzard)
+          Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --region <REGION>
           [default: eu]
       --locale <LOCALE>
@@ -348,7 +348,7 @@ Arguments:
 
 Options:
       --deep         Also hash every stored byte against its chunk table and key. Reads the whole store, minutes rather than seconds, and is safe while the game runs
-      --root <ROOT>  Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>  Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --repair       Remove damaged entries from the indices. Requires a closed client
       --all          List every damaged entry rather than the first few
   -h, --help         Print help
@@ -369,10 +369,29 @@ Arguments:
 
 Options:
       --root <ROOT>
-          Override the Blizzard root (default: ~/Games/Blizzard)
+          Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
 
   -h, --help
           Print help (see a summary with '-h')
+```
+
+### `lightforge fixup`
+
+```text
+Re-extract the install-manifest files (the `.app` / CEF tree) and repair macOS bundle layout. Does not re-download the CASC store
+
+Usage: lightforge fixup [OPTIONS] [PATH]
+
+Arguments:
+  [PATH]  Install root. Defaults to the configured product's folder
+
+Options:
+      --product <PRODUCT>  [default: wow]
+      --root <ROOT>        Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
+      --region <REGION>    [default: eu]
+      --locale <LOCALE>    [default: enUS]
+      --local              Only assemble frameworks, set `+x`, and ad-hoc sign. No CDN
+  -h, --help               Print help
 ```
 
 ### `lightforge move`
@@ -384,7 +403,7 @@ Usage: lightforge move [OPTIONS] --to <TO>
 
 Options:
       --product <PRODUCT>  [default: wow]
-      --root <ROOT>        Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>        Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --to <TO>            The library to move it to, by name or id, as `lightforge paths` lists them
       --yes                Actually move. Without this, nothing is touched
   -h, --help               Print help
@@ -399,7 +418,7 @@ Usage: lightforge uninstall [OPTIONS]
 
 Options:
       --product <PRODUCT>  [default: wow]
-      --root <ROOT>        Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>        Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --path <PATH>        Install root. Defaults to the managed WoW install
       --yes                Actually delete. Without this, nothing is touched
   -h, --help               Print help
@@ -419,7 +438,7 @@ Options:
           Install root. Defaults to the managed WoW install
 
       --root <ROOT>
-          Override the Blizzard root (default: ~/Games/Blizzard)
+          Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
 
       --yes
           Actually drop and compact. Without this, nothing is touched
@@ -442,7 +461,7 @@ Options:
           Install root. Defaults to the managed WoW install
 
       --root <ROOT>
-          Override the Blizzard root (default: ~/Games/Blizzard)
+          Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
 
       --yes
           Actually rewrite. Without this, nothing is touched
@@ -462,7 +481,7 @@ Arguments:
   [PRODUCT]  Product code, e.g. `wow` or `wow_classic` [default: wow]
 
 Options:
-      --root <ROOT>  Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>  Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
   -h, --help         Print help
 ```
 
@@ -477,7 +496,7 @@ Usage: lightforge addons [OPTIONS]
 
 Options:
       --product <PRODUCT>  [default: wow]
-      --root <ROOT>        Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>        Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --path <PATH>        Read this AddOns directory instead of the product's own
       --token <TOKEN>      Reconcile against a WoWUp import token (or `@file`)
   -h, --help               Print help
@@ -495,7 +514,7 @@ Arguments:
 
 Options:
       --product <PRODUCT>  [default: wow]
-      --root <ROOT>        Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>        Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --limit <LIMIT>      [default: 15]
       --catalog <CATALOG>  
   -h, --help               Print help
@@ -513,7 +532,7 @@ Arguments:
 
 Options:
       --provider <PROVIDER>  [default: wowinterface]
-      --root <ROOT>          Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>          Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --product <PRODUCT>    [default: wow]
       --catalog <CATALOG>    
   -h, --help                 Print help
@@ -531,7 +550,7 @@ Arguments:
 
 Options:
       --product <PRODUCT>  [default: wow]
-      --root <ROOT>        Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>        Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --catalog <CATALOG>  Catalog base URL, or a fixture directory. Defaults to config
       --dry-run            Resolve and report without writing anything
   -h, --help               Print help
@@ -546,7 +565,7 @@ Usage: lightforge addon-update [OPTIONS]
 
 Options:
       --product <PRODUCT>  [default: wow]
-      --root <ROOT>        Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>        Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --catalog <CATALOG>  
   -h, --help               Print help
 ```
@@ -563,7 +582,7 @@ Arguments:
 
 Options:
       --provider <PROVIDER>  [default: curse]
-      --root <ROOT>          Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>          Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --product <PRODUCT>    [default: wow]
   -h, --help                 Print help
 ```
@@ -577,7 +596,7 @@ Usage: lightforge addon-adopt [OPTIONS]
 
 Options:
       --product <PRODUCT>  [default: wow]
-      --root <ROOT>        Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>        Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --path <PATH>        Read this AddOns directory instead of the product's own
       --ledger <LEDGER>    Write the ledger here instead of beside the product's
       --catalog <CATALOG>  Base URL of the addon catalog, or a fixture directory
@@ -593,7 +612,7 @@ Usage: lightforge backup-list [OPTIONS]
 
 Options:
       --product <PRODUCT>  [default: wow]
-      --root <ROOT>        Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>        Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
   -h, --help               Print help
 ```
 
@@ -606,7 +625,7 @@ Usage: lightforge backup-create [OPTIONS]
 
 Options:
       --product <PRODUCT>  [default: wow]
-      --root <ROOT>        Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>        Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
   -h, --help               Print help
 ```
 
@@ -622,7 +641,7 @@ Arguments:
 
 Options:
       --product <PRODUCT>  [default: wow]
-      --root <ROOT>        Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>        Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --account <ACCOUNT>  Only this game account's folder, as `backup-list` names it; the other accounts and what they share stay as they are
   -h, --help               Print help
 ```
@@ -643,7 +662,7 @@ Options:
           [default: eu]
 
       --root <ROOT>
-          Override the Blizzard root (default: ~/Games/Blizzard)
+          Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
 
       --code <CODE>
           Extra codes to probe beyond the built-in list
@@ -669,7 +688,7 @@ Usage: lightforge assets [OPTIONS]
 
 Options:
       --product <PRODUCT>  Product code to theme, e.g. `wow` [default: wow]
-      --root <ROOT>        Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>        Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
       --source <SOURCE>    Base URL or fixture directory. Defaults to `assets_source` in config.toml, else the built-in source
   -h, --help               Print help
 ```

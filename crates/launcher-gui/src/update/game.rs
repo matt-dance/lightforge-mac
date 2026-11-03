@@ -56,6 +56,61 @@ impl Lightforge {
                 Task::none()
             }
 
+            Message::LocateOrVerify => {
+                self.gear_open = false;
+                self.error = None;
+                let code = self.selected.code.clone();
+                if self.local.is_installed() {
+                    let install = self.layout.wow_install(&code);
+                    self.status = "repairing app/CEF files (not the 85 GB store)…".to_owned();
+                    let region = self.config.region;
+                    let locale = self.config.locale_for(&code).to_owned();
+                    return Ok(Task::perform(
+                        tasks::repair_macos(install, code, region, locale),
+                        Message::InstallPrepared,
+                    ));
+                }
+                if let Some(found) = lightforge_core::discover::nearby_complete(&self.layout, &code)
+                {
+                    return Ok(self.take_existing_install(found));
+                }
+                self.status = "choose the World of Warcraft folder…".to_owned();
+                Task::perform(crate::pick::pick_folder(), Message::LocatedFolder)
+            }
+
+            Message::LocatedFolder(path) => {
+                let Some(path) = path else {
+                    self.status = String::new();
+                    return Ok(Task::none());
+                };
+                match lightforge_core::discover::inspect_pointed(&path)
+                    .and_then(|found| found.wow.into_iter().next())
+                    .or_else(|| lightforge_core::discover::wow_install_at(&path))
+                {
+                    Some(install) => self.take_existing_install(install),
+                    None => {
+                        self.error = Some(
+                            format!(
+                                "{} is not a World of Warcraft install (need .build.info)",
+                                path.display()
+                            )
+                            .into(),
+                        );
+                        Task::none()
+                    }
+                }
+            }
+
+            Message::InstallPrepared(result) => {
+                match result {
+                    Ok(report) => {
+                        self.status = format!("existing install: {report}");
+                    }
+                    Err(e) => self.error = Some(e.into()),
+                }
+                self.reload(self.selected.code.clone())
+            }
+
             Message::ShowInExplorer => {
                 self.gear_open = false;
                 let dir = self.layout.wow_install(&self.selected.code);
@@ -124,6 +179,36 @@ impl Lightforge {
             }
             other => return Err(other),
         })
+    }
+
+    /// Adopt a found install, then make it launchable and refresh the tile.
+    pub(crate) fn take_existing_install(
+        &mut self,
+        install: lightforge_core::discover::WowInstall,
+    ) -> Task<Message> {
+        match crate::wizard::adopt_wow(self, &install) {
+            Ok(notes) => {
+                self.status = notes
+                    .first()
+                    .map(|n| n.text.clone())
+                    .unwrap_or_else(|| format!("using the install at {}", install.path.display()));
+                let dest = install.path.clone();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            lightforge_core::macos_install::prepare_install(&dest)
+                        })
+                        .await
+                        .map_err(|e| e.to_string())
+                    },
+                    Message::InstallPrepared,
+                )
+            }
+            Err(e) => {
+                self.error = Some(e.into());
+                Task::none()
+            }
+        }
     }
 
     /// The Game Settings card: opening it, its switches and its environment editor.

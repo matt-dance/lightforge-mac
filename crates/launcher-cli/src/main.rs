@@ -135,11 +135,12 @@ async fn run() -> Result<()> {
             locale,
             flavor,
             cpu,
+            os,
             explain,
             optional,
             limit_archives,
             concurrency,
-        } => commands::download::plan(dest, product, region, locale, flavor.unwrap_or_default(), cpu, explain, optional, limit_archives, concurrency).await,
+        } => commands::download::plan(dest, product, region, locale, flavor.unwrap_or_default(), cpu, os, explain, optional, limit_archives, concurrency).await,
         Command::AddonAdopt { product, path, ledger, catalog } => commands::addons::addon_adopt(ctx, product, path, ledger, catalog).await,
         Command::AddonFingerprints { product, path, catalog } => commands::addons::addon_fingerprints(ctx, product, path, catalog).await,
         Command::Addons { product, path, token } => commands::addons::addons(ctx, product, path, token),
@@ -154,6 +155,9 @@ async fn run() -> Result<()> {
         Command::AddonToken { token } => commands::addons::addon_token(token),
         Command::Verify { path, deep, repair, all } => commands::storage::verify(ctx, path, deep, repair, all),
         Command::Reindex { path } => commands::storage::reindex(ctx, path),
+        Command::Fixup { path, product, region, locale, local } => {
+            commands::download::fixup(ctx, path, product, region, locale, local).await
+        }
         Command::Move { product, to, yes } => commands::storage::move_game(ctx, product, to, yes).await,
         Command::Uninstall { product, path, yes } => commands::storage::uninstall(ctx, product, path, yes),
         Command::Reclaim { product, build_key, region, path, yes } => commands::storage::reclaim(ctx, product, build_key, region, path, yes).await,

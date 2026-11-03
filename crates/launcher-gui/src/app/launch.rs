@@ -166,6 +166,16 @@ impl Lightforge {
     /// Start what a finished pre-flight cleared the way for.
     pub(crate) fn start_launch(&mut self, what: Launch) -> Task<Message> {
         let code = self.launching.clone().unwrap_or_else(|| self.selected.code.clone());
+        if what != Launch::Game && !lightforge_core::host::uses_proton() {
+            self.busy = false;
+            self.launching = None;
+            self.error = Some(
+                "Battle.net is not launched through Wine on macOS; Play starts World of Warcraft.app directly"
+                    .to_owned()
+                    .into(),
+            );
+            return Task::none();
+        }
         if what != Launch::Game {
             // Kept if one is running: its timestamp is still the last read.
             self.registry_watch.get_or_insert_with(RegistryWatch::new).since = Instant::now();

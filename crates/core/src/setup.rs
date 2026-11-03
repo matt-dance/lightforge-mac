@@ -48,11 +48,14 @@ impl Status {
 
     /// Nothing left to provision.
     pub fn is_ready(&self) -> bool {
-        self.proton.is_some() && self.prefix.is_ready() && (self.battle_net || !self.battle_net_wanted)
+        self.outstanding().is_empty()
     }
 
     /// The steps still outstanding, in the order they must run.
     pub fn outstanding(&self) -> Vec<Step> {
+        if crate::host::is_macos() {
+            return Vec::new();
+        }
         let mut steps = Vec::new();
         if self.proton.is_none() {
             steps.push(Step::Proton);
@@ -401,6 +404,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn outstanding_steps_come_back_in_dependency_order() {
         let steps = status(false, false, false).outstanding();
@@ -414,6 +418,14 @@ mod tests {
         assert!(ready.outstanding().is_empty());
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_needs_no_proton_prefix_or_battlenet() {
+        assert!(status(false, false, false).is_ready());
+        assert!(status(false, false, false).outstanding().is_empty());
+    }
+
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn a_machine_that_declined_battle_net_is_still_finished() {
         let mut status = status(true, true, false);
@@ -427,6 +439,7 @@ mod tests {
         assert_eq!(status.outstanding(), vec![Step::BattleNet]);
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn a_missing_middle_step_does_not_hide_the_later_one() {
         // Proton present, prefix not built, Battle.net obviously absent: both

@@ -15,6 +15,14 @@ mod tests;
 pub use update::update;
 pub use view::view;
 
+/// Adopt one found install from outside the wizard (Locate / nearby recover).
+pub(crate) fn adopt_wow(
+    app: &mut crate::Lightforge,
+    install: &WowInstall,
+) -> Result<Vec<Note>, String> {
+    adopt::adopt_one(app, install)
+}
+
 use std::path::PathBuf;
 
 use iced::widget::{container, image, row, scrollable, text, text_input, Space};
@@ -272,7 +280,7 @@ pub fn prefetch(app: &Lightforge) -> iced::Task<Message> {
 
 /// A region as a picker option; the widget needs `Display`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct RegionChoice(Region);
+pub(crate) struct RegionChoice(pub(crate) Region);
 
 impl std::fmt::Display for RegionChoice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -13,6 +13,11 @@ pub async fn preflight(
     runs: Runs,
 ) -> Result<(), Problem> {
     tokio::task::spawn_blocking(move || -> Result<_, Problem> {
+        if !lightforge_core::host::uses_proton() {
+            let mut guard = downloads;
+            let _ = guard.pause(&code);
+            return Ok(());
+        }
         // The launch's own build, or the shared prefix gets upgraded in between.
         let runner = runner_for(&layout, &code, runs)?;
         let mut guard = downloads;
@@ -101,13 +106,16 @@ pub enum Started {
 /// Proton child. If it never appears, the child's exit status is reported.
 pub async fn start_game(layout: Layout, code: ProductCode) -> Result<Started, Problem> {
     tokio::task::spawn_blocking(move || -> Result<_, Problem> {
+        let exe = layout.wow_exe(&code);
+        if !lightforge_core::paths::is_launchable(&exe) {
+            return Err(format!("no game at {}", exe.display()).into());
+        }
+        if !lightforge_core::host::uses_proton() {
+            return start_native(layout, code, exe);
+        }
         // The native path, not the `C:` symlink, so Wine puts the game on its
         // own drive ([`Layout::wow_drive`]) and the shop's browser keeps its
         // GPU child. Verified 2026-10-02, a full checkout.
-        let exe = layout.wow_exe(&code);
-        if !exe.is_file() {
-            return Err(format!("no game at {}", exe.display()).into());
-        }
 
         back_up_before_launch(&layout, &code);
 
@@ -164,6 +172,70 @@ pub async fn start_game(layout: Layout, code: ProductCode) -> Result<Started, Pr
     })
     .await
     .map_err(|e| Problem::of(&e))?
+}
+
+/// Start the native macOS client: the Mach-O inside `World of Warcraft.app`.
+///
+/// No Proton, no prefix. The product config's `launch_arguments` are empty
+/// on macOS (no `-launcherlogin` token). Working directory is the flavor
+/// folder so `Data/` and `Utils/BlizzardBrowser.app` resolve. The game
+/// shows Battle.net login itself once that CEF bundle can launch.
+fn start_native(layout: Layout, code: ProductCode, exe: PathBuf) -> Result<Started, Problem> {
+    back_up_before_launch(&layout, &code);
+
+    let binary = lightforge_core::paths::launch_binary(&exe);
+    if !binary.is_file() {
+        return Err(format!(
+            "no executable inside {} — the install is incomplete",
+            exe.display()
+        )
+        .into());
+    }
+
+    let generation = LAUNCHES.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    let before = lightforge_core::preflight::games_running(&layout);
+    let flavor = layout.product_dir(&code);
+    tracing::info!("launching {}: {binary:?} in {flavor:?}", code.as_str());
+
+    let mut child = std::process::Command::new(&binary)
+        .current_dir(&flavor)
+        .spawn()
+        .map_err(|e| Problem::of(&e))?;
+    crate::trace::mark(format!("launch: spawned {}", binary.display()));
+    let session = Instant::now();
+
+    let watch = binary
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .ok_or_else(|| "game binary has no file name".to_owned())?;
+
+    match watch_for(&layout, &before, &watch, &mut child)? {
+        Watched::Running(pid) => {
+            crate::trace::mark(format!("launch: {watch} is up (pid {pid})"));
+            tracing::info!(
+                "{watch} is up (pid {pid}) after {:.1}s",
+                session.elapsed().as_secs_f64()
+            );
+            reap_later(child);
+            Ok(Started::Up {
+                game: GameProcess { pid, name: watch },
+                generation,
+            })
+        }
+        Watched::TreeExited(status) => {
+            tracing::warn!(
+                "game exited ({status}) after {:.1}s before {watch} was seen",
+                session.elapsed().as_secs_f64()
+            );
+            Ok(Started::Over(format!("game exited ({status})")))
+        }
+        Watched::NeverAppeared => {
+            tracing::warn!(
+                "{watch} never appeared within {GAME_APPEAR_WITHIN:?}; waiting on the process"
+            );
+            reap(child).map(Started::Over)
+        }
+    }
 }
 
 /// What [`watch_for`] saw.
@@ -259,6 +331,9 @@ pub async fn launch_via_battle_net(
     family: Option<String>,
     minimized: bool,
 ) -> Result<Handoff, Problem> {
+    if !lightforge_core::host::uses_proton() {
+        return Err("Battle.net is not launched through Wine on macOS; Play starts World of Warcraft.app directly and the game shows its own login".to_owned().into());
+    }
     tokio::task::spawn_blocking(move || -> Result<_, Problem> {
         use lightforge_core::battlenet::{self, Launch, Readiness};
         use lightforge_core::preflight;
@@ -345,6 +420,9 @@ pub async fn install_via_battle_net(
     uid: String,
     label: String,
 ) -> Result<String, Problem> {
+    if !lightforge_core::host::uses_proton() {
+        return Err("Battle.net is not launched through Wine on macOS; Play starts World of Warcraft.app directly and the game shows its own login".to_owned().into());
+    }
     tokio::task::spawn_blocking(move || -> Result<_, Problem> {
         use lightforge_core::battlenet::{self, Launch};
 
@@ -412,8 +490,10 @@ pub async fn await_game_exit(
         crate::trace::mark(format!("launch: {} has exited", game.name));
         // Best effort: the next pre-flight does the same work.
         if let Some(generation) = settle_after {
-            if let Ok(runner) = runner_for(&layout, &code, Runs::Game) {
-                settle(&layout, &runner, generation);
+            if lightforge_core::host::uses_proton() {
+                if let Ok(runner) = runner_for(&layout, &code, Runs::Game) {
+                    settle(&layout, &runner, generation);
+                }
             }
         }
         Ok(format!("{} exited", game.name))
@@ -462,6 +542,9 @@ pub async fn running_games(layout: Layout) -> Vec<String> {
 pub async fn quit_battle_net(layout: Layout, code: ProductCode) -> Result<String, Problem> {
     use lightforge_core::preflight::{self, Disposition};
 
+    if !lightforge_core::host::uses_proton() {
+        return Ok("Battle.net is not used on macOS".to_owned());
+    }
     tokio::task::spawn_blocking(move || -> Result<_, Problem> {
         let runner = client_runner(&layout, &code)?;
         let outcomes = preflight::quit_client(&runner, &layout, STOP_GRACE).map_err(|e| Problem::of(&e))?;
@@ -518,6 +601,9 @@ pub async fn open_battle_net(
     code: ProductCode,
     user: String,
 ) -> Result<String, Problem> {
+    if !lightforge_core::host::uses_proton() {
+        return Err("Battle.net is not launched through Wine on macOS; Play starts World of Warcraft.app directly and the game shows its own login".to_owned().into());
+    }
     tokio::task::spawn_blocking(move || -> Result<_, Problem> {
         use lightforge_core::battlenet::{self, Launch};
 

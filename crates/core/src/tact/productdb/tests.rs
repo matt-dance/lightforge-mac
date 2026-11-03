@@ -153,7 +153,7 @@ mod writing {
     fn agent_style_tags_match_what_a_real_record_carries() {
         // Verbatim shape from Gabriel's install, wow row.
         assert_eq!(
-            agent_tags("x86_64", "eu", "enUS", "AUT", "AT"),
+            agent_tags("Windows", "x86_64", "eu", "enUS", "AUT", "AT"),
             "Windows x86_64 EU? acct-AUT? geoip-AT? enUS speech?:\
              Windows x86_64 EU? acct-AUT? geoip-AT? enUS text?"
                 .replace("\\\n             ", "")
@@ -161,7 +161,7 @@ mod writing {
         // Without an account, the acct/geoip tags are left out, not
         // written empty.
         assert_eq!(
-            agent_tags("x86_64", "us", "deDE", "", ""),
+            agent_tags("Windows", "x86_64", "us", "deDE", "", ""),
             "Windows x86_64 US? deDE speech?:Windows x86_64 US? deDE text?"
         );
     }
@@ -174,7 +174,7 @@ mod writing {
         // would silently change what an update fetches. `TagSet` strips them,
         // so both forms carry the same required names.
         let plain = TagSet::parse("Windows x86_64 EU enUS speech:Windows x86_64 EU enUS text");
-        let agent = TagSet::parse(&agent_tags("x86_64", "eu", "enUS", "", ""));
+        let agent = TagSet::parse(&agent_tags("Windows", "x86_64", "eu", "enUS", "", ""));
         assert_eq!(format!("{plain:?}"), format!("{agent:?}"));
     }
 
@@ -183,6 +183,19 @@ mod writing {
         assert_eq!(cpu_from_tags("Windows arm64 EU enUS speech:Windows arm64 EU enUS text"), "arm64");
         assert_eq!(cpu_from_tags("Windows x86_64 EU enUS speech:Windows x86_64 EU enUS text"), "x86_64");
         assert_eq!(cpu_from_tags(""), "x86_64");
+    }
+
+    #[test]
+    fn osx_agent_tags_keep_the_osx_prefix() {
+        assert_eq!(
+            agent_tags("OSX", "arm64", "us", "enUS", "", ""),
+            "OSX arm64 US? enUS speech?:OSX arm64 US? enUS text?"
+        );
+        assert_eq!(
+            os_from_tags("OSX arm64 US enUS speech:OSX arm64 US enUS text"),
+            "OSX"
+        );
+        assert_eq!(os_from_tags("Windows x86_64 EU enUS"), "Windows");
     }
 
     #[test]

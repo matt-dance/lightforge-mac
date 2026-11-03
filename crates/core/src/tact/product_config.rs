@@ -6,6 +6,7 @@
 //! its game binary.
 
 use crate::net::Http;
+use crate::tact::install::{Cpu, Os};
 
 use super::cdn::{CdnError, Client, Endpoint, Kind};
 use super::version::Cdn;
@@ -18,6 +19,22 @@ pub struct ProductConfig {
     pub executable: Option<String>,
     /// The Windows-on-ARM binary's, e.g. `Wow-ARM64.exe`.
     pub executable_arm64: Option<String>,
+    /// The macOS `.app` bundle, e.g. `World of Warcraft.app`.
+    pub executable_osx: Option<String>,
+    /// The macOS ARM bundle, when the config names one separately.
+    pub executable_osx_arm64: Option<String>,
+}
+
+impl ProductConfig {
+    /// The binary this platform should extract and launch.
+    pub fn for_platform(&self, os: Os, cpu: Cpu) -> Option<String> {
+        match (os, cpu) {
+            (Os::Osx, Cpu::Arm64) => self.executable_osx_arm64.clone().or_else(|| self.executable_osx.clone()),
+            (Os::Osx, Cpu::X86_64) => self.executable_osx.clone(),
+            (Os::Windows, Cpu::Arm64) => self.executable_arm64.clone(),
+            (Os::Windows, Cpu::X86_64) => self.executable.clone(),
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -48,6 +65,8 @@ pub fn parse(json: &str) -> Result<ProductConfig, serde_json::Error> {
             .map(str::to_owned),
         executable: binary("/platform/win/config/binaries/game/relative_path"),
         executable_arm64: binary("/platform/win/config/binaries/game/relative_path_arm64"),
+        executable_osx: binary("/platform/mac/config/binaries/game/relative_path"),
+        executable_osx_arm64: binary("/platform/mac/config/binaries/game/relative_path_arm64"),
     })
 }
 
@@ -84,6 +103,16 @@ mod tests {
     fn retail_and_forever_name_an_arm_binary() {
         assert_eq!(parse(WOW).unwrap().executable_arm64.as_deref(), Some("Wow-ARM64.exe"));
         assert_eq!(parse(WOWF).unwrap().executable_arm64.as_deref(), Some("Wow-arm64.exe"));
+    }
+
+    #[test]
+    fn forever_names_the_mac_app() {
+        let config = parse(WOWF).unwrap();
+        assert_eq!(config.executable_osx.as_deref(), Some("World of Warcraft.app"));
+        assert_eq!(
+            config.for_platform(crate::tact::install::Os::Osx, crate::tact::install::Cpu::Arm64).as_deref(),
+            Some("World of Warcraft.app"),
+        );
     }
 
     #[test]

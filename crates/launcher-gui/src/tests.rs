@@ -1150,17 +1150,18 @@ fn the_shown_rate_is_held_a_second_however_often_it_is_sampled() {
     rate.sample(30_000_000);
     let shown = rate.per_second;
 
-    // Three more samples inside the hold: the average follows them, the
-    // number on screen does not move.
-    for _ in 0..3 {
-        std::thread::sleep(Duration::from_millis(260));
+    // Two more samples inside the hold: the average follows them, the
+    // number on screen does not move. Three 260 ms sleeps were 780 ms of a
+    // 1 s hold, which a loaded runner oversleeps past.
+    for _ in 0..2 {
+        std::thread::sleep(Duration::from_millis(300));
         rate.sample(30_000_000);
     }
     assert_eq!(rate.per_second, shown);
     assert!(rate.average < shown as f64);
 
     // Past the hold, the next sample publishes where the average got to.
-    std::thread::sleep(Duration::from_millis(300));
+    std::thread::sleep(Duration::from_millis(800));
     rate.sample(30_000_000);
     assert_eq!(rate.per_second, rate.average as u64);
     assert!(rate.per_second < shown);

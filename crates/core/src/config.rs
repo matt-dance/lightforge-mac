@@ -86,6 +86,11 @@ pub struct Config {
     /// into `.build.info` and `product.db`.
     #[serde(default)]
     pub region: crate::tact::version::Region,
+    /// Whether [`Self::region`] was chosen (wizard, Settings, or a one-shot
+    /// system-locale fill). When false, a first launch replaces the enum
+    /// default (`eu`) with [`crate::tact::version::Region::from_system`].
+    #[serde(default)]
+    pub region_set: bool,
     /// The language the game is installed in, e.g. `deDE`: it selects which
     /// files are downloaded, so it is asked at setup.
     #[serde(default = "default_locale")]
@@ -181,6 +186,7 @@ impl Default for Config {
             close_battle_net_on_play: false,
             battle_net_tweaks: crate::tweaks::Tweaks::default(),
             region: crate::tact::version::Region::default(),
+            region_set: false,
             locale: default_locale(),
             setup_complete: false,
             battle_net_declined: false,
@@ -286,6 +292,23 @@ impl Config {
             }
         }
         self.locale = locale.to_owned();
+    }
+
+    /// Record an explicit region choice so [`Self::ensure_region`] leaves it.
+    pub fn set_region(&mut self, region: crate::tact::version::Region) {
+        self.region = region;
+        self.region_set = true;
+    }
+
+    /// Fill [`Self::region`] from the system locale the first time, then
+    /// remember that it has been set. Returns whether the config changed.
+    pub fn ensure_region(&mut self) -> bool {
+        if self.region_set {
+            return false;
+        }
+        self.region = crate::tact::version::Region::from_system();
+        self.region_set = true;
+        true
     }
 
     /// Add a product, rejecting a duplicate code.
@@ -825,6 +848,19 @@ mod tests {
 
     /// A stock install, with no `addon_catalog` line, once found no
     /// CurseForge addon at all.
+    #[test]
+    fn an_unset_region_is_filled_from_the_system_once() {
+        let mut config = Config::default();
+        assert!(!config.region_set);
+        assert_eq!(config.region, crate::tact::version::Region::Eu);
+        assert!(config.ensure_region());
+        assert!(config.region_set);
+        assert!(!config.ensure_region());
+        config.set_region(crate::tact::version::Region::Kr);
+        assert_eq!(config.region, crate::tact::version::Region::Kr);
+        assert!(!config.ensure_region());
+    }
+
     #[test]
     fn an_unconfigured_install_still_reaches_curseforge() {
         use crate::addons::catalog::Origin as CatalogOrigin;

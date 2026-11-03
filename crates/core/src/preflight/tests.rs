@@ -61,6 +61,7 @@ fn stand_in(layout: &Layout, name: &str) -> std::process::Child {
         .unwrap()
 }
 
+#[cfg(target_os = "linux")]
 fn runner(layout: &Layout) -> crate::prefix::ProtonRunner {
     use crate::proton::{ProtonFlavor, ProtonRelease, ProtonSource};
 
@@ -74,6 +75,7 @@ fn runner(layout: &Layout) -> crate::prefix::ProtonRunner {
     crate::prefix::ProtonRunner::new(&release, layout, "/steam")
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn a_second_launch_goes_beside_a_running_game() {
     let layout = Layout::with_root("/games/beside-a-game");
@@ -87,6 +89,7 @@ fn a_second_launch_goes_beside_a_running_game() {
     let _ = game.wait();
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn a_game_served_by_another_build_refuses_a_launch_beside_it() {
     let layout = Layout::with_root("/games/another-build");
@@ -104,6 +107,7 @@ fn a_game_served_by_another_build_refuses_a_launch_beside_it() {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn quitting_the_client_beside_a_game_leaves_the_game_running() {
     let layout = Layout::with_root("/games/quit-beside-a-game");

@@ -262,6 +262,44 @@ pub fn inspect(prefix: &Path, origin: Origin) -> Option<Found> {
     Some(entry)
 }
 
+/// Places a first-run or forgotten config still looks for a complete install.
+pub fn candidate_wow_roots() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Some(home) = directories::UserDirs::new() {
+        let home = home.home_dir();
+        out.push(
+            home.join("Library")
+                .join("Application Support")
+                .join("Lightforge")
+                .join("games")
+                .join(WOW_DIR),
+        );
+        out.push(home.join("Applications").join(WOW_DIR));
+        out.push(home.join("Games").join("Blizzard").join("games").join(WOW_DIR));
+    }
+    out
+}
+
+/// A complete install of `code` that is on disk but not the layout's current
+/// path. Used to adopt rather than re-download after a missing library row.
+pub fn nearby_complete(layout: &Layout, code: &ProductCode) -> Option<WowInstall> {
+    let expected = layout.wow_install(code);
+    if crate::state::Local::inspect_at(&expected, code).is_installed() {
+        return None;
+    }
+    let mut seen = std::collections::HashSet::new();
+    seen.insert(expected);
+    for path in candidate_wow_roots() {
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        if crate::state::Local::inspect_at(&path, code).is_installed() {
+            return wow_install_at(&path);
+        }
+    }
+    None
+}
+
 /// Inspect a directory the user pointed at themselves.
 ///
 /// Accepts a Wine prefix or a WoW install root.
@@ -511,7 +549,9 @@ mod tests {
             .join(format!("lightforge-discover-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        dir
+        // macOS `/var` is a symlink to `/private/var`; inspect() canonicalizes
+        // through dosdevices, so the fixture path has to as well.
+        dir.canonicalize().unwrap_or(dir)
     }
 
     fn record(product: &str, install_path: &str, family: &str) -> ProductInstall {
@@ -836,5 +876,16 @@ mod tests {
         assert!(origins.contains(&Origin::Bottles));
         assert!(origins.contains(&Origin::Heroic));
         assert!(origins.contains(&Origin::Faugus));
+    }
+
+    #[test]
+    fn known_wow_roots_include_the_macos_default() {
+        let roots = candidate_wow_roots();
+        assert!(
+            roots.iter().any(|p| p.ends_with("Lightforge/games/World of Warcraft")),
+            "{roots:?}"
+        );
+        let layout = Layout::with_root(scratch("empty-nearby"));
+        assert!(nearby_complete(&layout, &ProductCode::Forever).is_none());
     }
 }

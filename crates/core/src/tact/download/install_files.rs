@@ -108,7 +108,8 @@ pub async fn extract_install(
             continue;
         };
         let path = resolve_windows_path(dest, &relative);
-        match crate::fsutil::write_atomic_with_mode(&path, &decoded, 0o644) {
+        let mode = crate::macos_install::install_file_mode(&decoded);
+        match crate::fsutil::write_atomic_with_mode(&path, &decoded, mode) {
             Ok(()) => {
                 let written = Extracted { path, bytes: decoded.len() as u64 };
                 progress(&written);

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Not sandboxed. Hardened runtime only. iced/wgpu talks to Metal;
+	     the app fetches from the network and starts World of Warcraft.app
+	     as a separate process. None of that needs a JIT hole. -->
+</dict>
+</plist>

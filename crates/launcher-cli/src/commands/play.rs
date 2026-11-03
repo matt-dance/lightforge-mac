@@ -4,6 +4,9 @@ use super::{managed_products, print_preflight, proton_runner};
 use crate::*;
 
 pub(crate) fn play(ctx: Ctx, code: ProductCode, proton: Option<String>, dry_run: bool) -> Result<()> {
+    if !lightforge_core::host::uses_proton() {
+        return play_native(ctx, code, dry_run);
+    }
     let Ctx { layout, config } = ctx;
     use lightforge_core::config::Config;
     use lightforge_core::preflight::{NoDownloads, Preflight};
@@ -73,7 +76,43 @@ pub(crate) fn play(ctx: Ctx, code: ProductCode, proton: Option<String>, dry_run:
     Ok(())
 }
 
+fn play_native(ctx: Ctx, code: ProductCode, dry_run: bool) -> Result<()> {
+    let Ctx { layout, .. } = ctx;
+    let bundle = layout.wow_exe(&code);
+    if !lightforge_core::paths::is_launchable(&bundle) {
+        anyhow::bail!(
+            "no game at {} — download and install it first",
+            bundle.display()
+        );
+    }
+    let binary = lightforge_core::paths::launch_binary(&bundle);
+    if !binary.is_file() {
+        anyhow::bail!(
+            "no executable inside {} — the install is incomplete",
+            bundle.display()
+        );
+    }
+    println!("install {}", layout.wow_install(&code).display());
+    println!("running {}", binary.display());
+    if dry_run {
+        return Ok(());
+    }
+    let status = std::process::Command::new(&binary)
+        .current_dir(layout.product_dir(&code))
+        .status()
+        .context("launching the game")?;
+    match status.code() {
+        Some(0) | None => println!("exited"),
+        Some(code) => println!("exited with code {code}"),
+    }
+    Ok(())
+}
+
 pub(crate) fn preflight(ctx: Ctx, proton: Option<String>, code: Option<ProductCode>, dry_run: bool, grace: u64) -> Result<()> {
+    if !lightforge_core::host::uses_proton() {
+        println!("pre-flight      skipped (native macOS, no Wine prefix)");
+        return Ok(());
+    }
     let Ctx { layout, config } = ctx;
     use lightforge_core::preflight::{self, NoDownloads, Preflight};
 
