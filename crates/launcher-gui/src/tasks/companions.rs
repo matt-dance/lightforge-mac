@@ -7,8 +7,11 @@ use super::*;
 use lightforge_core::companion::{self, Companion};
 use lightforge_core::product::Kind;
 
-/// A Windows program to run, an installer or the program itself, picked
-/// through the desktop portal; see `update/report.rs` for why not `rfd`.
+/// A Windows program to run, an installer or the program itself.
+///
+/// Linux uses the XDG portal (`ashpd`); `rfd` there talks to libdbus
+/// in-process and never returns. macOS uses `rfd`. See `pick.rs`.
+#[cfg(target_os = "linux")]
 pub async fn pick_program() -> Option<PathBuf> {
     let request = ashpd::desktop::file_chooser::OpenFileRequest::default()
         .title("Choose a Windows installer or program")
@@ -17,6 +20,21 @@ pub async fn pick_program() -> Option<PathBuf> {
         .filter(ashpd::desktop::file_chooser::FileFilter::new("Windows programs").glob("*.exe"));
     let files = request.send().await.ok()?.response().ok()?;
     files.uris().first().and_then(|uri| uri.to_file_path().ok())
+}
+
+#[cfg(target_os = "macos")]
+pub async fn pick_program() -> Option<PathBuf> {
+    rfd::AsyncFileDialog::new()
+        .set_title("Choose a Windows installer or program")
+        .add_filter("Windows programs", &["exe"])
+        .pick_file()
+        .await
+        .map(|file| file.path().to_path_buf())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+pub async fn pick_program() -> Option<PathBuf> {
+    None
 }
 
 /// Start `installer` in `game`'s prefix and return the programs that were
