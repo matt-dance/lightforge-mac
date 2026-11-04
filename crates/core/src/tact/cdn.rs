@@ -349,6 +349,17 @@ impl Client {
         ekey: &super::storage::EKey,
         expect_ckey: &super::config::CKey,
     ) -> Result<Vec<u8>, CdnError> {
+        self.fetch_loose_blte(http, ekey, expect_ckey).await.map(|(_, decoded)| decoded)
+    }
+
+    /// [`Client::fetch_loose`], also returning the BLTE bytes as served, which
+    /// is what the store holds: `(blte, decoded)`.
+    pub async fn fetch_loose_blte(
+        &self,
+        http: &Http,
+        ekey: &super::storage::EKey,
+        expect_ckey: &super::config::CKey,
+    ) -> Result<(Vec<u8>, Vec<u8>), CdnError> {
         let hash = hex(ekey);
         let mut last: Option<CdnError> = None;
 
@@ -368,7 +379,7 @@ impl Client {
                     let actual = *md5::compute(&decoded);
                     if &actual == expect_ckey {
                         record_success(&endpoint.origin);
-                        return Ok(decoded);
+                        return Ok((raw, decoded));
                     }
                     record_failure(&endpoint.origin);
                     last = Some(CdnError::HashMismatch {

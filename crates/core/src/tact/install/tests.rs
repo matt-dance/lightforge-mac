@@ -2,17 +2,20 @@ use super::*;
 use crate::tact::manifest::Tag;
 
 #[test]
-fn the_tag_column_matches_what_a_real_build_info_carries() {
+fn the_tag_column_is_written_the_way_agent_writes_it() {
     let options = Options {
         region: Region::Eu,
         cpu: Cpu::X86_64,
         os: Os::Windows,
         locale: "enUS".into(),
+        account_country: "AUT".into(),
+        geo_country: "AT".into(),
         ..Options::default()
     };
+    // Forever's row after Agent rewrote it, 2026-11-04.
     assert_eq!(
         options.tag_column(),
-        "Windows x86_64 EU enUS speech:Windows x86_64 EU enUS text"
+        "Windows x86_64 EU? acct-AUT? geoip-AT? enUS speech?:Windows x86_64 EU? acct-AUT? geoip-AT? enUS text?"
     );
 }
 
@@ -25,7 +28,10 @@ fn an_arm_machine_asks_for_the_arm_client() {
         locale: "enUS".into(),
         ..Options::default()
     };
-    assert_eq!(options.tag_column(), "Windows arm64 EU enUS speech:Windows arm64 EU enUS text");
+    assert_eq!(
+        options.tag_column(),
+        "Windows arm64 EU? enUS speech?:Windows arm64 EU? enUS text?"
+    );
 }
 
 #[test]
@@ -39,7 +45,7 @@ fn an_apple_silicon_machine_asks_for_the_osx_client() {
     };
     assert_eq!(
         options.tag_column(),
-        "OSX arm64 US enUS speech:OSX arm64 US enUS text"
+        "OSX arm64 US? enUS speech?:OSX arm64 US? enUS text?"
     );
 }
 

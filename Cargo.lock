@@ -2045,8 +2045,6 @@ dependencies = [
 [[package]]
 name = "iced_winit"
 version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7589888c8e951899cc688247a69933bb7a0511f0b4b2e122ac3fcd5dacb37f72"
 dependencies = [
  "iced_debug",
  "iced_program",
@@ -2470,7 +2468,7 @@ dependencies = [
 
 [[package]]
 name = "lightforge-cli"
-version = "1.0.0-beta.9"
+version = "1.0.0-beta.10"
 dependencies = [
  "anyhow",
  "clap",
@@ -2483,7 +2481,7 @@ dependencies = [
 
 [[package]]
 name = "lightforge-core"
-version = "1.0.0-beta.9"
+version = "1.0.0-beta.10"
 dependencies = [
  "blte",
  "directories",
@@ -2507,13 +2505,14 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "x11rb",
  "zip",
  "zstd",
 ]
 
 [[package]]
 name = "lightforge-gui"
-version = "1.0.0-beta.9"
+version = "1.0.0-beta.10"
 dependencies = [
  "ashpd 0.12.3",
  "base64",

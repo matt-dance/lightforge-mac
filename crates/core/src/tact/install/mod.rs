@@ -123,18 +123,27 @@ impl Options {
 
     /// [`Options::tag_column`] for a locale other than the one asked for,
     /// see [`shipped_locale`].
+    ///
+    /// In Agent's form: `.build.info` must read as it writes it, or Agent marks
+    /// the install unfinished and Battle.net will not start it. The `?`s select
+    /// the same files.
     fn tag_column_for(&self, locale: &str) -> String {
-        Self::tag_expression(self.os, self.cpu, self.region, locale)
+        crate::tact::productdb::agent_tags(
+            self.os.tag(),
+            self.cpu.tag(),
+            self.region.as_str(),
+            locale,
+            &self.account_country,
+            &self.geo_country,
+        )
     }
 
     /// The tag expression a `.build.info` carries for this OS, CPU, region
     /// and locale. Shared by the planner after it may have fallen back from
-    /// `arm64` to `x86_64` on an OSX universal build.
+    /// `arm64` to `x86_64` on an OSX universal build. Account/GeoIP are empty
+    /// here; [`Options::tag_column`] fills them.
     pub(crate) fn tag_expression(os: Os, cpu: Cpu, region: Region, locale: &str) -> String {
-        let r = region.as_str().to_uppercase();
-        let cpu = cpu.tag();
-        let os = os.tag();
-        format!("{os} {cpu} {r} {locale} speech:{os} {cpu} {r} {locale} text")
+        crate::tact::productdb::agent_tags(os.tag(), cpu.tag(), region.as_str(), locale, "", "")
     }
 
     /// True when any option truncates the plan.
