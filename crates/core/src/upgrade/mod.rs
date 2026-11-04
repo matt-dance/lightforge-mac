@@ -26,7 +26,7 @@ pub mod tarball;
 pub mod terminal;
 
 /// Where every release's files are published.
-const DOWNLOADS: &str = "https://github.com/LightforgeProject/lightforge/releases/download";
+const DOWNLOADS: &str = "https://github.com/matt-dance/lightforge-mac/releases/download";
 
 /// The Arch packages, as the release left them on `main`: the tag still has
 /// `sha256sums=('SKIP')`, the checksums are committed after it.
@@ -64,6 +64,8 @@ pub enum Origin {
     Cargo,
     /// Anything in the Nix store.
     Nix,
+    /// `Lightforge.app` on macOS, typically in `/Applications`.
+    MacApp,
     /// None of these.
     Unknown,
 }
@@ -106,6 +108,9 @@ impl Origin {
             .find(|dir| dir.join("Cargo.toml").is_file() && dir.join("crates/launcher-gui").is_dir())
         {
             return Self::Checkout { repo: repo.to_path_buf() };
+        }
+        if is_macos_app(exe) {
+            return Self::MacApp;
         }
         if !bin_dir.starts_with("/usr") {
             return Self::Unknown;
@@ -167,10 +172,15 @@ impl Origin {
             },
             Self::Cargo => Route::Instructions {
                 commands: vec![format!(
-                    "cargo install --locked --git https://github.com/LightforgeProject/lightforge \
+                    "cargo install --locked --git https://github.com/matt-dance/lightforge-mac \
                      --tag v{version} lightforge-gui"
                 )],
                 note: "This Lightforge was installed with cargo.".to_owned(),
+            },
+            Self::MacApp => Route::Instructions {
+                commands: vec![crate::update::macos_dmg_url(version)],
+                note: "Download the new DMG, open it, and drag Lightforge to Applications."
+                    .to_owned(),
             },
             // No command: the store path does not say how it was installed.
             Self::Nix => say(
@@ -247,6 +257,20 @@ fn nix_profile_link(exe: &Path, home: Option<&Path>, user: &OsStr, root: &Path) 
 
 fn home() -> Option<PathBuf> {
     directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf())
+}
+
+/// `.../Lightforge.app/Contents/MacOS/lightforge-gui`.
+fn is_macos_app(exe: &Path) -> bool {
+    let Some(macos) = exe.parent() else {
+        return false;
+    };
+    if !macos.ends_with("Contents/MacOS") {
+        return false;
+    }
+    macos
+        .parent()
+        .and_then(|contents| contents.parent())
+        .is_some_and(|app| app.extension().is_some_and(|ext| ext == "app"))
 }
 
 /// `lightforge` or `lightforge-bin`, from pacman's database folders, which
@@ -394,6 +418,10 @@ mod tests {
         assert_eq!(detect("/home/u/.cargo/bin/lightforge-gui", &empty), Origin::Cargo);
         assert_eq!(detect("/opt/lightforge/lightforge-gui", &empty), Origin::Unknown);
         assert_eq!(detect("/nix/store/aaaa-lightforge-1/bin/lightforge-gui", &empty), Origin::Nix);
+        assert_eq!(
+            detect("/Applications/Lightforge.app/Contents/MacOS/lightforge-gui", &empty),
+            Origin::MacApp
+        );
         let _ = std::fs::remove_dir_all(&empty);
     }
 
@@ -493,10 +521,25 @@ mod tests {
             Origin::Rpm { atomic: true },
             Origin::Cargo,
             Origin::Nix,
+            Origin::MacApp,
             Origin::Unknown,
         ] {
             assert!(!pressable(words.clone()), "{words:?}");
         }
+    }
+
+    #[test]
+    fn a_mac_app_is_updated_from_this_forks_dmg() {
+        let Route::Instructions { commands, note } = Origin::MacApp.route("1.0.0-beta.9-mac.3") else {
+            panic!("a Mac app gets the DMG link, not an in-place replace");
+        };
+        assert_eq!(
+            commands,
+            vec![crate::update::macos_dmg_url("1.0.0-beta.9-mac.3")]
+        );
+        assert!(note.contains("DMG"));
+        assert!(commands[0].contains("matt-dance/lightforge-mac"));
+        assert!(commands[0].ends_with("Lightforge-1.0.0-beta.9-mac.3-arm64.dmg"));
     }
 
     #[test]

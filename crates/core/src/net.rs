@@ -14,7 +14,7 @@ use tokio::io::AsyncWriteExt;
 use crate::text::hex;
 
 /// Sent on every request. GitHub rejects API calls without a User-Agent.
-const USER_AGENT: &str = concat!("Lightforge/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("Lightforge/", env!("LIGHTFORGE_VERSION"));
 
 /// How long a response may go without sending a byte before it fails.
 const READ_TIMEOUT: Duration = Duration::from_secs(30);

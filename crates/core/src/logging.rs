@@ -85,7 +85,7 @@ pub fn init(dirs: &AppDirs, name: &str) -> Result<PathBuf, LogError> {
         .map_err(|_| LogError::AlreadySet)?;
 
     install_panic_hook();
-    tracing::info!(version = env!("CARGO_PKG_VERSION"), process = name, "started");
+    tracing::info!(version = crate::update::VERSION, process = name, "started");
     crate::debug::log_environment();
     Ok(path)
 }

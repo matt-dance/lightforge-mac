@@ -329,7 +329,7 @@ impl Lightforge {
             (LauncherCheck::Newest, None) => ("This is the newest version.".to_owned(), false),
             (LauncherCheck::Idle, None) => (String::new(), false),
         };
-        let controls = row![text(env!("CARGO_PKG_VERSION")).size(theme::BODY).font(theme::MONO)]
+        let controls = row![text(lightforge_core::update::VERSION).size(theme::BODY).font(theme::MONO)]
             .push(self.newer_release.as_ref().map(|newer| {
                 let label = match self.origin.route(&newer.latest) {
                     lightforge_core::upgrade::Route::Instructions { .. } => "How to update",

@@ -139,7 +139,7 @@ fn main() -> iced::Result {
     // Answered before any window, as clap answers it for `lightforge`;
     // packaging checks it.
     if std::env::args().skip(1).any(|arg| arg == "--version" || arg == "-V") {
-        println!("lightforge-gui {}", env!("CARGO_PKG_VERSION"));
+        println!("lightforge-gui {}", lightforge_core::update::VERSION);
         return Ok(());
     }
     start_logging();

@@ -7,7 +7,7 @@
 //! ```
 //!
 //! Proves the endpoint answers, the JSON has `Release`'s fields, and a real
-//! tag like `v1.0.0-beta.2` parses.
+//! tag like `v1.0.0-beta.9-mac.2` parses.
 
 use lightforge_core::net::{ETagCache, Http};
 use lightforge_core::update;
@@ -31,12 +31,11 @@ async fn the_published_releases_parse_and_order() {
         );
     }
 
-    // Every tag has to parse once the `v` comes off, or the comparison below
-    // silently skips it and the check goes quiet for everyone.
+    // Every tag has to parse, including this fork's `-mac.N` suffix, or the
+    // comparison below silently skips it and the check goes quiet for everyone.
     for release in &releases {
-        let bare = release.tag_name.trim_start_matches('v');
         assert!(
-            semver::Version::parse(bare).is_ok(),
+            update::canonical_version(&release.tag_name).is_some(),
             "{} is not a version the check can order",
             release.tag_name
         );

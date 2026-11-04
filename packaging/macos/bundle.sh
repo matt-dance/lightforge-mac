@@ -4,7 +4,13 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)"
+# Tagged macOS releases are `v<upstream>-mac.N`. Cargo.toml stays on the
+# upstream SemVer; the tag is what the update check compares.
+if [[ -n "${LIGHTFORGE_VERSION:-}" ]]; then
+  version="$LIGHTFORGE_VERSION"
+else
+  version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)"
+fi
 bin_dir="${1:-$root/target/release}"
 out_dir="${2:-$root/target/dist}"
 app="$out_dir/Lightforge.app"

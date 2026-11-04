@@ -139,7 +139,7 @@ async fn latest_release(http: Http) -> Result<Option<lightforge_core::update::Av
     let releases = update::fetch(&http, &cache).await.map_err(|e| e.to_string())?;
     // For development: pretend to be older to be offered the newest release.
     let running = std::env::var("LIGHTFORGE_PRETEND_VERSION")
-        .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_owned());
+        .unwrap_or_else(|_| lightforge_core::update::VERSION.to_owned());
     let found = update::newer_than(&running, &releases);
     crate::trace::mark(match &found {
         Some(available) => format!("update: {} is out", available.latest),

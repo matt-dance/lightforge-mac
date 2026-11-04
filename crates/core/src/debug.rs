@@ -75,7 +75,7 @@ impl DebugInfo {
         };
 
         Self {
-            app_version: env!("CARGO_PKG_VERSION").to_owned(),
+            app_version: crate::update::VERSION.to_owned(),
             product: code.as_str().to_owned(),
             action_state: action_state.to_owned(),
             install_path: install.is_dir().then(|| install.clone()),
