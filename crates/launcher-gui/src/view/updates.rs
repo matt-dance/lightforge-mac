@@ -6,7 +6,9 @@ use iced::widget::column;
 impl Lightforge {
     /// Lightforge's own release notes.
     pub(crate) fn updates_screen(&self) -> Element<'_, Message> {
+        // Notes are filed under the upstream SemVer in RELEASES.md, not `-mac.N`.
         let version = env!("CARGO_PKG_VERSION");
+        let running = lightforge_core::update::VERSION;
         let releases = lightforge_core::releases::all();
 
         let mut body = column![].spacing(theme::LG);
@@ -46,7 +48,7 @@ impl Lightforge {
         // Through `page`, for the margins and title.
         self.page(
             "Lightforge Updates",
-            Some(format!("You are running {version}.")),
+            Some(format!("You are running {running}.")),
             None,
             body.into(),
         )

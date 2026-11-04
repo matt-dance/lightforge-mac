@@ -3,7 +3,7 @@
 use crate::*;
 
 #[derive(Parser)]
-#[command(name = "lightforge", version, about = "Lightforge CLI")]
+#[command(name = "lightforge", version = lightforge_core::update::VERSION, about = "Lightforge CLI")]
 pub(crate) struct Cli {
     /// Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge).
     #[arg(long, global = true)]

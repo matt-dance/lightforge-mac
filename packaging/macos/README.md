@@ -166,9 +166,15 @@ After the six secrets are in the `release` environment, cut a tag
 from `main` (do not do this until the secrets are in place):
 
 ```bash
-git tag v1.0.0-beta.9
-git push origin v1.0.0-beta.9
+git tag v1.0.0-beta.9-mac.3
+git push origin v1.0.0-beta.9-mac.3
 ```
+
+Tags are `<upstream>-mac.N` (upstream's `v1.0.0-beta.9`, then this fork's
+build of it). Cargo.toml stays on the upstream SemVer. The release
+workflow sets `LIGHTFORGE_VERSION` from the tag so the binary, Info.plist
+and DMG name carry `-mac.N`; the in-app update check compares that
+against [this repo's releases](https://github.com/matt-dance/lightforge-mac/releases).
 
 That runs `.github/workflows/release.yml`: build, sign with hardened
 runtime and a secure timestamp, `notarytool submit --wait`, staple

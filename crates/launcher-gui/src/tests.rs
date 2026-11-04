@@ -1218,6 +1218,7 @@ fn the_update_card_draws_for_every_route_and_stage() {
         Origin::Copr { atomic: true },
         Origin::Checkout { repo: "/home/u/lightforge".into() },
         Origin::Nix,
+        Origin::MacApp,
         Origin::Unknown,
     ];
     let stages = [

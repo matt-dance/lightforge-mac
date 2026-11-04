@@ -29,6 +29,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Bake `v1.0.0-beta.9-mac.3` into the binary, Info.plist, and DMG name
+      # so the in-app update check can see this build as current.
+      - name: Version from the tag
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          echo "LIGHTFORGE_VERSION=${tag}" >> "$GITHUB_ENV"
+          echo "release version ${tag}"
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2

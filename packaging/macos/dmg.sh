@@ -3,7 +3,12 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)"
+# Same source as bundle.sh: the release tag when set, else Cargo.toml.
+if [[ -n "${LIGHTFORGE_VERSION:-}" ]]; then
+  version="$LIGHTFORGE_VERSION"
+else
+  version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)"
+fi
 app="${1:-$root/target/dist/Lightforge.app}"
 out="${2:-$root/target/dist/Lightforge-$version-arm64.dmg}"
 
