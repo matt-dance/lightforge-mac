@@ -64,6 +64,22 @@ impl Lightforge {
                     {
                         return Ok(self.take_existing_install(found));
                     }
+                } else if lightforge_core::macos_install::needs_identity_repair(
+                    &self.layout.wow_install(&code),
+                    &code,
+                ) {
+                    // A previous fixup ad-hoc signed WowVoiceProxy.app inside
+                    // World of Warcraft.app (or `--force` stripped the parent).
+                    // Local +x / CEF assembly cannot restore Blizzard's
+                    // Developer ID; re-extract the install-manifest files.
+                    let install = self.layout.wow_install(&code);
+                    self.status = "restoring World of Warcraft.app signature…".to_owned();
+                    let region = self.config.region;
+                    let locale = self.config.locale_for(&code).to_owned();
+                    return Ok(Task::perform(
+                        tasks::repair_macos(install, code, region, locale),
+                        Message::InstallPrepared,
+                    ));
                 } else if lightforge_core::macos_install::needs_fixup(
                     &self.layout.wow_install(&code),
                     &code,

@@ -378,7 +378,7 @@ Options:
 ### `lightforge fixup`
 
 ```text
-Re-extract the install-manifest files (the `.app` / CEF tree) and repair macOS bundle layout. Does not re-download the CASC store
+Re-extract the install-manifest files (the `.app` / CEF tree) and repair macOS bundle layout. Restores Blizzard's signature on `World of Warcraft.app`; does not re-sign that bundle. Does not re-download the CASC store
 
 Usage: lightforge fixup [OPTIONS] [PATH]
 

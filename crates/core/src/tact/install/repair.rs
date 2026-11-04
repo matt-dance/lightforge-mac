@@ -13,7 +13,9 @@ use crate::product::ProductCode;
 use crate::tact::download::{extract_install, write_flavor_info, Cancel, Catalog, Source};
 
 /// Re-extract the install-manifest files into `dest`'s flavor folder and
-/// run the macOS launch fixup (framework assembly, `+x`, ad-hoc sign).
+/// run the macOS launch fixup (framework assembly, `+x`, ad-hoc sign of
+/// unsigned Utils helpers). Restores Blizzard's Developer ID on
+/// `World of Warcraft.app` when a previous pass re-signed a nested helper.
 ///
 /// Does not create a [`crate::tact::writer::StoreWriter`], so it cannot
 /// rewrite or truncate the store. `.build.info` is left as it is.

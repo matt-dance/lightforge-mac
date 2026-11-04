@@ -11,11 +11,15 @@
 //! 1. Rebuilds `.framework` trees in place (no re-download).
 //! 2. Sets `+x` on Mach-O and `#!` helpers.
 //! 3. Clears quarantine.
-//! 4. Ad-hoc signs `.app` / `.framework` bundles whose signature is
-//!    missing or broken, so helpers like BlizzardBrowser can launch.
-//!    A valid Developer ID on `World of Warcraft.app` is left alone.
-//!    `icudt*.dat` in `Contents/MacOS` is expected Blizzard data, not a
-//!    reason to re-sign or warn.
+//! 4. Ad-hoc signs **unsigned** `.app` / `.framework` bundles under
+//!    `Utils/` (BlizzardBrowser, its CEF helpers, Blizzard Error) so the
+//!    in-game login window can launch. Nothing inside
+//!    `World of Warcraft.app` is re-signed: that bundle ships with
+//!    Blizzard's Developer ID (`Team G847MC6JZ5`). Ad-hoc signing a nested
+//!    helper such as `WowVoiceProxy.app` invalidates the parent's sealed
+//!    resources; `--force` then strips the Developer ID and the client
+//!    aborts ~13s later (ERROR #132). `icudt*.dat` in `Contents/MacOS` is
+//!    expected Blizzard data, not a reason to re-sign or warn.
 //!
 //! `execute` runs this after every install-file extract: a fresh install
 //! *and* later patches that replace `World of Warcraft.app` /
@@ -96,7 +100,13 @@ pub fn looks_like_mach_o(bytes: &[u8]) -> bool {
     let magic = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
     matches!(
         magic,
-        0xFEED_FACE | 0xFEED_FACF | 0xCEFA_EDFE | 0xCFFA_EDFE | 0xCAFE_BABE | 0xBEBA_FECA | 0xCAFE_BABF
+        0xFEED_FACE
+            | 0xFEED_FACF
+            | 0xCEFA_EDFE
+            | 0xCFFA_EDFE
+            | 0xCAFE_BABE
+            | 0xBEBA_FECA
+            | 0xCAFE_BABF
     )
 }
 
@@ -127,6 +137,37 @@ pub fn needs_fixup(install: &Path, code: &crate::product::ProductCode) -> bool {
         Err(_) => true,
     };
     mode_wrong || frameworks_need_assembly(install)
+}
+
+/// Whether `World of Warcraft.app` must be re-extracted from the CDN.
+///
+/// True when a previous fixup ad-hoc signed a nested helper (or `--force`
+/// signed the parent and failed), leaving the bundle unsigned or with an
+/// ad-hoc helper inside a Developer ID parent. Local `+x` / CEF assembly
+/// cannot restore Blizzard's signature; [`crate::tact::install::repair_install_files`]
+/// can.
+pub fn needs_identity_repair(install: &Path, code: &crate::product::ProductCode) -> bool {
+    let local = crate::state::Local::inspect_at(install, code);
+    let Some(exe) = local.executable else {
+        return false;
+    };
+    if !crate::paths::is_app_bundle(&exe) {
+        return false;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = exe;
+        false
+    }
+    #[cfg(target_os = "macos")]
+    {
+        game_app_needs_cdn_repair(has_code_signature(&exe), nested_helpers_are_adhoc(&exe))
+    }
+}
+
+/// Decision behind [`needs_identity_repair`], kept pure so Linux CI covers it.
+pub fn game_app_needs_cdn_repair(parent_has_signature: bool, nested_helper_adhoc: bool) -> bool {
+    !parent_has_signature || nested_helper_adhoc
 }
 
 /// Whether `codesign --verify` stderr is only Blizzard's unsigned ICU data
@@ -161,16 +202,44 @@ pub fn verify_stderr_is_expected_icu_data(stderr: &str) -> bool {
     saw_sub
 }
 
+/// Whether `path` is `World of Warcraft.app` or a file inside it.
+///
+/// Nested helpers (`Contents/Helpers/WowVoiceProxy.app`) share the parent's
+/// Developer ID. Ad-hoc signing them invalidates the sealed resources and
+/// is what then tempts `--force` onto the parent.
+pub fn path_is_inside_game_app(path: &Path) -> bool {
+    path.components().any(|component| {
+        component
+            .as_os_str()
+            .to_str()
+            .is_some_and(|name| name.eq_ignore_ascii_case("World of Warcraft.app"))
+    })
+}
+
+/// Whether `codesign -dv` stderr describes an ad-hoc signature.
+pub fn codesign_display_is_adhoc(stderr: &str) -> bool {
+    stderr.lines().any(|line| {
+        let lower = line.trim().to_ascii_lowercase();
+        lower == "signature=adhoc" || (lower.contains("flags=") && lower.contains("adhoc"))
+    })
+}
+
 /// Whether a bundle should be ad-hoc signed.
 ///
-/// Skip when `codesign --verify` succeeded, or when it only complained
-/// about `icudt*.dat` on a bundle that already has an identity. Sign when
-/// the signature is missing or broken (CEF / BlizzardBrowser after TACT).
+/// Skip when `path` is inside `World of Warcraft.app` (Blizzard's Developer
+/// ID, including nested helpers). Skip when `codesign --verify` succeeded,
+/// or when it only complained about `icudt*.dat` on a bundle that already
+/// has an identity. Sign when the signature is missing or broken (CEF /
+/// BlizzardBrowser after TACT).
 pub fn bundle_needs_adhoc_sign(
     verify_ok: bool,
     has_code_signature: bool,
     verify_stderr: &str,
+    inside_game_app: bool,
 ) -> bool {
+    if inside_game_app {
+        return false;
+    }
     if verify_ok {
         return false;
     }
@@ -450,22 +519,21 @@ fn clear_quarantine(root: &Path) -> bool {
 }
 
 /// Ad-hoc sign `.app` and `.framework` bundles whose signature is missing
-/// or broken. A valid Developer ID (Forever's `World of Warcraft.app`) is
-/// left alone. `--deep` is not used: it treats data files next to the
-/// Mach-O as unsigned nested code.
+/// or broken. `World of Warcraft.app` and everything inside it is left
+/// alone: a valid Developer ID must not be replaced, and signing a nested
+/// helper invalidates the parent's sealed resources. `--deep` is not used:
+/// it treats data files next to the Mach-O as unsigned nested code.
 #[cfg(target_os = "macos")]
 fn adhoc_sign(root: &Path, report: &mut Report) {
     let mut bundles = Vec::new();
     collect_signable(root, &mut bundles);
     bundles.sort_by_key(|p| std::cmp::Reverse(p.components().count()));
     for bundle in bundles {
+        let inside_game = path_is_inside_game_app(&bundle);
         let (verify_ok, stderr) = codesign_verify(&bundle);
         let has_sig = has_code_signature(&bundle);
-        if !bundle_needs_adhoc_sign(verify_ok, has_sig, &stderr) {
-            tracing::debug!(
-                "leaving existing signature on {}",
-                bundle.display()
-            );
+        if !bundle_needs_adhoc_sign(verify_ok, has_sig, &stderr, inside_game) {
+            tracing::debug!("leaving existing signature on {}", bundle.display());
             continue;
         }
         if sign_one(&bundle) {
@@ -497,6 +565,10 @@ fn collect_signable(dir: &Path, out: &mut Vec<PathBuf>) {
         }
         if crate::paths::is_app_bundle(&path) || is_framework(&path) {
             out.push(path.clone());
+            // Nested helpers inside the game .app stay Blizzard-signed.
+            if crate::paths::is_app_bundle(&path) && path_is_inside_game_app(&path) {
+                continue;
+            }
         }
         collect_signable(&path, out);
     }
@@ -534,6 +606,33 @@ fn has_code_signature(path: &Path) -> bool {
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
+}
+
+#[cfg(target_os = "macos")]
+fn nested_helpers_are_adhoc(app: &Path) -> bool {
+    let helpers = app.join("Contents").join("Helpers");
+    let Ok(entries) = std::fs::read_dir(helpers) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        crate::paths::is_app_bundle(&path) && bundle_is_adhoc(&path)
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn bundle_is_adhoc(path: &Path) -> bool {
+    match std::process::Command::new("codesign")
+        .args(["-d", "-v"])
+        .arg(path)
+        .output()
+    {
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            output.status.success() && codesign_display_is_adhoc(&stderr)
+        }
+        Err(_) => false,
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -583,6 +682,14 @@ fn verify_one_app(app: &Path, report: &mut Report) {
         return;
     }
     report.codesign_failed += 1;
+    if path_is_inside_game_app(app) {
+        tracing::warn!(
+            "codesign --verify failed for {} (re-extract the app from the CDN; do not ad-hoc sign it): {}",
+            app.display(),
+            stderr.trim()
+        );
+        return;
+    }
     tracing::warn!(
         "codesign --verify failed for {}: {}",
         app.display(),
@@ -603,7 +710,7 @@ World of Warcraft.app: code object is not signed at all
 In subcomponent: /Games/_forever_/World of Warcraft.app/Contents/MacOS/icudt78l.dat
 ";
         assert!(verify_stderr_is_expected_icu_data(stderr));
-        assert!(!bundle_needs_adhoc_sign(false, true, stderr));
+        assert!(!bundle_needs_adhoc_sign(false, true, stderr, false));
     }
 
     #[test]
@@ -614,13 +721,14 @@ In subcomponent: /Games/_forever_/World of Warcraft.app/Contents/MacOS/icudt78l.
         assert!(bundle_needs_adhoc_sign(
             false,
             false,
-            "code object is not signed at all"
+            "code object is not signed at all",
+            false
         ));
     }
 
     #[test]
     fn a_valid_verify_is_not_re_signed() {
-        assert!(!bundle_needs_adhoc_sign(true, true, ""));
+        assert!(!bundle_needs_adhoc_sign(true, true, "", false));
     }
 
     #[test]
@@ -630,7 +738,7 @@ a sealed resource is missing or invalid
 In subcomponent: /Utils/BlizzardBrowser.app/Contents/Frameworks/Chromium Embedded Framework.framework
 ";
         assert!(!verify_stderr_is_expected_icu_data(stderr));
-        assert!(bundle_needs_adhoc_sign(false, true, stderr));
+        assert!(bundle_needs_adhoc_sign(false, true, stderr, false));
     }
 
     #[test]
@@ -640,7 +748,72 @@ code object is not signed at all
 In subcomponent: /World of Warcraft.app/Contents/MacOS/helper
 ";
         assert!(!verify_stderr_is_expected_icu_data(stderr));
-        assert!(bundle_needs_adhoc_sign(false, true, stderr));
+        assert!(bundle_needs_adhoc_sign(false, true, stderr, false));
+    }
+
+    #[test]
+    fn nothing_inside_the_game_app_is_ad_hoc_signed() {
+        let sealed = "\
+a sealed resource is missing or invalid
+In subcomponent: /World of Warcraft.app/Contents/Helpers/WowVoiceProxy.app
+";
+        assert!(!bundle_needs_adhoc_sign(false, true, sealed, true));
+        assert!(!bundle_needs_adhoc_sign(
+            false,
+            false,
+            "code object is not signed at all",
+            true
+        ));
+        assert!(!bundle_needs_adhoc_sign(true, true, "", true));
+    }
+
+    #[test]
+    fn game_app_paths_cover_the_bundle_and_nested_helpers() {
+        assert!(path_is_inside_game_app(Path::new(
+            "/Games/_forever_/World of Warcraft.app"
+        )));
+        assert!(path_is_inside_game_app(Path::new(
+            "/Games/_forever_/World of Warcraft.app/Contents/Helpers/WowVoiceProxy.app"
+        )));
+        assert!(path_is_inside_game_app(Path::new(
+            "/Games/_forever_/WORLD OF WARCRAFT.APP/Contents/Info.plist"
+        )));
+        assert!(!path_is_inside_game_app(Path::new(
+            "/Games/_forever_/Utils/BlizzardBrowser.app"
+        )));
+        assert!(!path_is_inside_game_app(Path::new(
+            "/Games/_forever_/Utils/BlizzardBrowser.app/Contents/Frameworks/BlizzardBrowser Helper.app"
+        )));
+        assert!(!path_is_inside_game_app(Path::new(
+            "/Games/_forever_/Utils/Blizzard Error.app"
+        )));
+    }
+
+    #[test]
+    fn adhoc_display_text_is_recognised() {
+        assert!(codesign_display_is_adhoc(
+            "Executable=/tmp/WowVoiceProxy.app/Contents/MacOS/WowVoiceProxy\n\
+             Identifier=com.blizzard.wowvoiceproxy\n\
+             Format=app bundle with Mach-O thin (arm64)\n\
+             CodeDirectory v=20400 size=300 flags=0x2(adhoc) hashes=8+2\n\
+             Signature=adhoc\n"
+        ));
+        assert!(codesign_display_is_adhoc(
+            "CodeDirectory v=20500 size=400 flags=0x10002(runtime,adhoc) hashes=12+2"
+        ));
+        assert!(!codesign_display_is_adhoc(
+            "Authority=Developer ID Application: Blizzard Entertainment, Inc. (G847MC6JZ5)\n\
+             TeamIdentifier=G847MC6JZ5\n"
+        ));
+        assert!(!codesign_display_is_adhoc(""));
+    }
+
+    #[test]
+    fn a_stripped_or_nested_adhoc_game_app_needs_cdn_repair() {
+        assert!(game_app_needs_cdn_repair(false, false));
+        assert!(game_app_needs_cdn_repair(true, true));
+        assert!(game_app_needs_cdn_repair(false, true));
+        assert!(!game_app_needs_cdn_repair(true, false));
     }
 
     #[test]
@@ -672,7 +845,8 @@ In subcomponent: /World of Warcraft.app/Contents/MacOS/helper
         std::fs::create_dir_all(&macos).unwrap();
         let bin = macos.join("World of Warcraft");
         let mut file = File::create(&bin).unwrap();
-        file.write_all(&[0xCF, 0xFA, 0xED, 0xFE, 0, 0, 0, 0]).unwrap();
+        file.write_all(&[0xCF, 0xFA, 0xED, 0xFE, 0, 0, 0, 0])
+            .unwrap();
         drop(file);
         std::fs::set_permissions(&bin, PermissionsExt::from_mode(0o644)).unwrap();
 
@@ -714,7 +888,11 @@ In subcomponent: /World of Warcraft.app/Contents/MacOS/helper
         std::fs::create_dir_all(&libraries).unwrap();
         std::fs::write(resources.join("Info.plist"), b"<plist/>").unwrap();
         std::fs::write(libraries.join("vk_swiftshader_icd.json"), b"{}").unwrap();
-        std::fs::write(fw.join("Chromium Embedded Framework"), [0xCF, 0xFA, 0xED, 0xFE]).unwrap();
+        std::fs::write(
+            fw.join("Chromium Embedded Framework"),
+            [0xCF, 0xFA, 0xED, 0xFE],
+        )
+        .unwrap();
         fw
     }
 
@@ -734,17 +912,18 @@ In subcomponent: /World of Warcraft.app/Contents/MacOS/helper
         assert!(info.is_file(), "Resources convenience link must resolve");
         assert_eq!(std::fs::read(&info).unwrap(), b"<plist/>");
         assert!(
-            fw.join("Resources").symlink_metadata().unwrap().file_type().is_symlink(),
+            fw.join("Resources")
+                .symlink_metadata()
+                .unwrap()
+                .file_type()
+                .is_symlink(),
             "top-level Resources is a symlink, not a second copy"
         );
 
         let binary = fw.join("Chromium Embedded Framework");
         assert!(binary.is_file());
         assert!(binary.symlink_metadata().unwrap().file_type().is_symlink());
-        assert_eq!(
-            std::fs::read(&binary).unwrap(),
-            [0xCF, 0xFA, 0xED, 0xFE]
-        );
+        assert_eq!(std::fs::read(&binary).unwrap(), [0xCF, 0xFA, 0xED, 0xFE]);
 
         // A second pass is a no-op: the files stay where they are.
         let again = prepare_tree(root.path());
@@ -763,7 +942,13 @@ In subcomponent: /World of Warcraft.app/Contents/MacOS/helper
         let dest = fw.join("Resources").join("Info.plist");
         std::fs::write(&dest, b"<plist updated/>").unwrap();
         assert_eq!(
-            std::fs::read(fw.join("Versions").join("A").join("Resources").join("Info.plist")).unwrap(),
+            std::fs::read(
+                fw.join("Versions")
+                    .join("A")
+                    .join("Resources")
+                    .join("Info.plist")
+            )
+            .unwrap(),
             b"<plist updated/>"
         );
     }

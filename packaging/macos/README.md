@@ -56,8 +56,9 @@ directory, not a missing binary). If the tile still says Install, the
 cog menu's **Locate / repair existing install** adopts the folder on
 disk. On an install that is already known it re-extracts the `.app` /
 CEF files (not the 85 GB store), rebuilds `Versions/Current` inside
-each `.framework`, sets `+x`, and ad-hoc signs the bundles so
-BlizzardBrowser can show login.
+each `.framework`, sets `+x`, and ad-hoc signs unsigned `Utils/`
+bundles so BlizzardBrowser can show login. `World of Warcraft.app` is
+left with Blizzard's Developer ID.
 
 **Updates and patches.** Every game update re-extracts
 `World of Warcraft.app` / `BlizzardBrowser.app` as a shallow TACT tree
