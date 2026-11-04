@@ -184,6 +184,7 @@ impl Lightforge {
             discarding: None,
             launching: None,
             playing: Vec::new(),
+            first_launch_notice: false,
             stop_dialog: None,
             version_dialog: None,
             modify_dialog: None,

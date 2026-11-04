@@ -11,9 +11,11 @@
 //! 1. Rebuilds `.framework` trees in place (no re-download).
 //! 2. Sets `+x` on Mach-O and `#!` helpers.
 //! 3. Clears quarantine.
-//! 4. Ad-hoc signs every `.app` / `.framework` so helpers can launch even
-//!    when the shipped `CodeResources` no longer matches (data files in
-//!    `Contents/MacOS`, missing framework symlinks).
+//! 4. Ad-hoc signs `.app` / `.framework` bundles whose signature is
+//!    missing or broken, so helpers like BlizzardBrowser can launch.
+//!    A valid Developer ID on `World of Warcraft.app` is left alone.
+//!    `icudt*.dat` in `Contents/MacOS` is expected Blizzard data, not a
+//!    reason to re-sign or warn.
 //!
 //! `execute` runs this after every install-file extract: a fresh install
 //! *and* later patches that replace `World of Warcraft.app` /
@@ -125,6 +127,57 @@ pub fn needs_fixup(install: &Path, code: &crate::product::ProductCode) -> bool {
         Err(_) => true,
     };
     mode_wrong || frameworks_need_assembly(install)
+}
+
+/// Whether `codesign --verify` stderr is only Blizzard's unsigned ICU data
+/// file, not a broken bundle signature.
+///
+/// Official `World of Warcraft.app` ships `Contents/MacOS/icudt*.dat` next
+/// to the Mach-O. `codesign --verify` reports that subcomponent as unsigned
+/// even without `--deep`. The outer bundle still has a valid Developer ID
+/// (`com.blizzard.worldofwarcraft`) and launches.
+pub fn verify_stderr_is_expected_icu_data(stderr: &str) -> bool {
+    let text = stderr.trim();
+    if text.is_empty() || !text.contains("In subcomponent:") {
+        return false;
+    }
+    if text.contains("a sealed resource is missing or invalid") {
+        return false;
+    }
+    let mut saw_sub = false;
+    for line in text.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("In subcomponent:") else {
+            continue;
+        };
+        saw_sub = true;
+        let path = rest.trim();
+        let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+        let name = name.to_ascii_lowercase();
+        if !name.starts_with("icudt") || !name.ends_with(".dat") {
+            return false;
+        }
+    }
+    saw_sub
+}
+
+/// Whether a bundle should be ad-hoc signed.
+///
+/// Skip when `codesign --verify` succeeded, or when it only complained
+/// about `icudt*.dat` on a bundle that already has an identity. Sign when
+/// the signature is missing or broken (CEF / BlizzardBrowser after TACT).
+pub fn bundle_needs_adhoc_sign(
+    verify_ok: bool,
+    has_code_signature: bool,
+    verify_stderr: &str,
+) -> bool {
+    if verify_ok {
+        return false;
+    }
+    if has_code_signature && verify_stderr_is_expected_icu_data(verify_stderr) {
+        return false;
+    }
+    true
 }
 
 /// Walk `root`, rebuild shallow `.framework` trees, set `+x` on Mach-O /
@@ -396,16 +449,25 @@ fn clear_quarantine(root: &Path) -> bool {
     }
 }
 
-/// Ad-hoc sign every `.app` and `.framework`. Official `CodeResources` is
-/// already invalid after a TACT extract (`icudt78l.dat` lives in
-/// `Contents/MacOS`; CEF is missing `Versions/Current`). `--deep` is not
-/// used: it treats data files next to the Mach-O as unsigned nested code.
+/// Ad-hoc sign `.app` and `.framework` bundles whose signature is missing
+/// or broken. A valid Developer ID (Forever's `World of Warcraft.app`) is
+/// left alone. `--deep` is not used: it treats data files next to the
+/// Mach-O as unsigned nested code.
 #[cfg(target_os = "macos")]
 fn adhoc_sign(root: &Path, report: &mut Report) {
     let mut bundles = Vec::new();
     collect_signable(root, &mut bundles);
     bundles.sort_by_key(|p| std::cmp::Reverse(p.components().count()));
     for bundle in bundles {
+        let (verify_ok, stderr) = codesign_verify(&bundle);
+        let has_sig = has_code_signature(&bundle);
+        if !bundle_needs_adhoc_sign(verify_ok, has_sig, &stderr) {
+            tracing::debug!(
+                "leaving existing signature on {}",
+                bundle.display()
+            );
+            continue;
+        }
         if sign_one(&bundle) {
             report.signed += 1;
             tracing::info!("ad-hoc signed {}", bundle.display());
@@ -450,6 +512,31 @@ fn sign_one(path: &Path) -> bool {
 }
 
 #[cfg(target_os = "macos")]
+fn codesign_verify(path: &Path) -> (bool, String) {
+    match std::process::Command::new("codesign")
+        .args(["--verify", "--verbose=2"])
+        .arg(path)
+        .output()
+    {
+        Ok(output) => (
+            output.status.success(),
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        ),
+        Err(e) => (false, e.to_string()),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn has_code_signature(path: &Path) -> bool {
+    std::process::Command::new("codesign")
+        .args(["-d"])
+        .arg(path)
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "macos")]
 fn verify_apps(dir: &Path, report: &mut Report) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -481,29 +568,26 @@ fn verify_apps(dir: &Path, report: &mut Report) {
 fn verify_one_app(app: &Path, report: &mut Report) {
     // No `--deep`: `Contents/MacOS/icudt78l.dat` is a data file the official
     // bundle also ships, and `--deep` reports it as unsigned nested code.
-    let output = std::process::Command::new("codesign")
-        .args(["--verify", "--verbose=2"])
-        .arg(app)
-        .output();
-    match output {
-        Ok(output) if output.status.success() => {
-            report.codesign_ok += 1;
-            tracing::info!("codesign --verify ok: {}", app.display());
-        }
-        Ok(output) => {
-            report.codesign_failed += 1;
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            tracing::warn!(
-                "codesign --verify failed for {}: {}",
-                app.display(),
-                stderr.trim()
-            );
-        }
-        Err(e) => {
-            report.codesign_failed += 1;
-            tracing::warn!("codesign --verify {}: {e}", app.display());
-        }
+    let (ok, stderr) = codesign_verify(app);
+    if ok {
+        report.codesign_ok += 1;
+        tracing::info!("codesign --verify ok: {}", app.display());
+        return;
     }
+    if has_code_signature(app) && verify_stderr_is_expected_icu_data(&stderr) {
+        report.codesign_ok += 1;
+        tracing::debug!(
+            "codesign --verify notes unsigned icudt data in {}; expected for Blizzard's bundle",
+            app.display()
+        );
+        return;
+    }
+    report.codesign_failed += 1;
+    tracing::warn!(
+        "codesign --verify failed for {}: {}",
+        app.display(),
+        stderr.trim()
+    );
 }
 
 #[cfg(test)]
@@ -511,6 +595,53 @@ mod tests {
     use super::*;
     use std::io::Write;
     use std::os::unix::fs::symlink;
+
+    #[test]
+    fn blizzard_icu_dat_is_expected_verify_noise() {
+        let stderr = "\
+World of Warcraft.app: code object is not signed at all
+In subcomponent: /Games/_forever_/World of Warcraft.app/Contents/MacOS/icudt78l.dat
+";
+        assert!(verify_stderr_is_expected_icu_data(stderr));
+        assert!(!bundle_needs_adhoc_sign(false, true, stderr));
+    }
+
+    #[test]
+    fn an_unsigned_bundle_is_signed() {
+        assert!(!verify_stderr_is_expected_icu_data(
+            "World of Warcraft.app: code object is not signed at all"
+        ));
+        assert!(bundle_needs_adhoc_sign(
+            false,
+            false,
+            "code object is not signed at all"
+        ));
+    }
+
+    #[test]
+    fn a_valid_verify_is_not_re_signed() {
+        assert!(!bundle_needs_adhoc_sign(true, true, ""));
+    }
+
+    #[test]
+    fn a_sealed_resource_missing_is_still_signed() {
+        let stderr = "\
+a sealed resource is missing or invalid
+In subcomponent: /Utils/BlizzardBrowser.app/Contents/Frameworks/Chromium Embedded Framework.framework
+";
+        assert!(!verify_stderr_is_expected_icu_data(stderr));
+        assert!(bundle_needs_adhoc_sign(false, true, stderr));
+    }
+
+    #[test]
+    fn another_unsigned_subcomponent_is_not_icu_noise() {
+        let stderr = "\
+code object is not signed at all
+In subcomponent: /World of Warcraft.app/Contents/MacOS/helper
+";
+        assert!(!verify_stderr_is_expected_icu_data(stderr));
+        assert!(bundle_needs_adhoc_sign(false, true, stderr));
+    }
 
     #[test]
     fn mach_o_magics_are_recognised() {

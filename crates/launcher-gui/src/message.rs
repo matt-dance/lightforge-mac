@@ -159,6 +159,8 @@ pub(crate) enum Message {
     /// A direct launch got as far as it can tell: the game is up, or it
     /// ended before it was ever seen.
     GameStarted(Result<tasks::Started, Problem>),
+    /// Forever's first-launch window is on screen, or the wait timed out.
+    GameWindowReady,
     /// A session's game exited.
     GameExited(ProductCode, Result<String, Problem>),
     /// STOP was pressed on the selected game: ask first.
