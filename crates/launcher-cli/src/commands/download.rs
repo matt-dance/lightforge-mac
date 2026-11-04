@@ -189,7 +189,8 @@ pub(crate) async fn download(dest: PathBuf, code: ProductCode, region: String, l
 }
 
 /// Re-extract install-manifest files and/or assemble macOS bundles. Never
-/// opens the CASC store for writing.
+/// opens the CASC store for writing. Does not ad-hoc sign
+/// `World of Warcraft.app`.
 pub(crate) async fn fixup(
     ctx: Ctx,
     path: Option<PathBuf>,

@@ -80,8 +80,9 @@ pub async fn execute(
         }
         // Fresh install *and* every later patch: TACT re-extracts
         // `World of Warcraft.app` / `BlizzardBrowser.app` as a shallow
-        // tree, so CEF must be reassembled, +x set, and the bundles
-        // signed again. Run even if one locale plist failed.
+        // tree, so CEF must be reassembled, +x set, and unsigned Utils
+        // helpers signed again. `World of Warcraft.app` keeps Blizzard's
+        // Developer ID. Run even if one locale plist failed.
         let fixup = crate::macos_install::prepare_tree(&flavor_dir);
         if fixup.made_executable > 0
             || fixup.cleared_quarantine

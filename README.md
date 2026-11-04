@@ -73,7 +73,7 @@ PTR and beta branches for those lines sit on the version picker next to Play. Yo
 
 When Blizzard publishes a new build, the Play button becomes **Update**. Press it, or use the cog menu → **Check for Updates**.
 
-Every game update re-extracts `World of Warcraft.app` and `BlizzardBrowser.app`, then runs the same macOS fixup as a fresh install (CEF framework layout, executable bits, ad-hoc sign, clear quarantine). You should not need to repair by hand after a normal patch.
+Every game update re-extracts `World of Warcraft.app` and `BlizzardBrowser.app`, then runs the same macOS fixup as a fresh install (CEF framework layout, executable bits, ad-hoc sign of unsigned `Utils/` helpers, clear quarantine). `World of Warcraft.app` keeps Blizzard's Developer ID — nested helpers such as `WowVoiceProxy.app` are not re-signed. You should not need to repair by hand after a normal patch.
 
 If Blizzard lists the next patch early, the Play page offers a **Pre-download**.
 
@@ -117,6 +117,9 @@ Expected. Wait for the in-game login window.
 
 **Login never appears, or the client reaches login and then exits.**  
 Run **Locate / repair existing install** so `BlizzardBrowser.app` and its CEF frameworks can launch.
+
+**The dock icon bounces, Metal comes up, then the client aborts after ~13s (ERROR #132).**  
+An older Lightforge build ad-hoc signed `WowVoiceProxy.app` inside `World of Warcraft.app`, which invalidates Blizzard's sealed resources. Update Lightforge, then **Locate / repair existing install** (or the command above). That re-extracts the `.app` without re-signing it.
 
 **“Launch via Battle.net” errors.**  
 On macOS, Play starts `World of Warcraft.app` directly. Use Play, not that button.

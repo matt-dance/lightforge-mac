@@ -1,5 +1,6 @@
 //! Repair a macOS install in place: re-extract the `.app` / CEF tree, then
-//! assemble frameworks and ad-hoc sign. The CASC store is not rewritten.
+//! assemble frameworks and ad-hoc sign unsigned Utils helpers. Does not
+//! re-sign `World of Warcraft.app`. The CASC store is not rewritten.
 
 use super::*;
 

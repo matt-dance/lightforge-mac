@@ -45,8 +45,10 @@ required.
 **Updates and patches.** Every game update re-extracts
 `World of Warcraft.app` / `BlizzardBrowser.app` (TACT ships them as a
 shallow tree) and then runs the same macOS fixup as a fresh install:
-assemble CEF `Versions/A` + `Current`, set `+x`, ad-hoc sign, clear
-quarantine. You should not need to repair by hand after a patch.
+assemble CEF `Versions/A` + `Current`, set `+x`, ad-hoc sign unsigned
+`Utils/` helpers, clear quarantine. `World of Warcraft.app` keeps
+Blizzard's Developer ID. You should not need to repair by hand after a
+patch.
 
 **If the tile still says Install**, or login aborts after a failed
 extract: cog menu → **Locate / repair existing install**, or:

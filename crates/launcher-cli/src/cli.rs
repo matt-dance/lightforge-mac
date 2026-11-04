@@ -426,7 +426,9 @@ pub(crate) enum Command {
         path: Option<PathBuf>,
     },
     /// Re-extract the install-manifest files (the `.app` / CEF tree) and
-    /// repair macOS bundle layout. Does not re-download the CASC store.
+    /// repair macOS bundle layout. Restores Blizzard's signature on
+    /// `World of Warcraft.app`; does not re-sign that bundle. Does not
+    /// re-download the CASC store.
     Fixup {
         /// Install root. Defaults to the configured product's folder.
         path: Option<PathBuf>,
