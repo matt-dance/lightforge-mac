@@ -2,13 +2,12 @@
 
 <img src="docs/banner.png" alt="Lightforge" width="640">
 
-**A native Linux launcher for World of Warcraft that also runs the rest of Battle.net.**
+**A native macOS launcher for World of Warcraft on Apple Silicon.**
 
-[![CI](https://github.com/LightforgeProject/lightforge/actions/workflows/ci.yml/badge.svg)](https://github.com/LightforgeProject/lightforge/actions/workflows/ci.yml)
+[![CI](https://github.com/matt-dance/lightforge-mac/actions/workflows/macos.yml/badge.svg)](https://github.com/matt-dance/lightforge-mac/actions/workflows/macos.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-E9AB28?style=flat-square)](LICENSE)
 [![Status: beta](https://img.shields.io/badge/status-1.0.0--beta.9-00B4FF?style=flat-square)](RELEASES.md)
-[![Linux](https://img.shields.io/badge/platform-Linux-8A94A3?style=flat-square)](#install)
-[![Discord](https://img.shields.io/badge/chat-Discord-5865F2?style=flat-square)](https://discord.gg/vtTgmUV9Bq)
+[![macOS](https://img.shields.io/badge/platform-macOS%20arm64-8A94A3?style=flat-square)](#install)
 
 </div>
 
@@ -16,290 +15,163 @@
 
 ---
 
-> **Unofficial Mac port.** This repository
-> ([matt-dance/lightforge-mac](https://github.com/matt-dance/lightforge-mac))
-> is a community port of
-> [LightforgeProject/lightforge](https://github.com/LightforgeProject/lightforge)
-> to macOS Apple Silicon. It is not an official LightforgeProject release
-> and is **not affiliated with, endorsed by, or sponsored by Blizzard
-> Entertainment**. Licensed under [GPL-3.0](LICENSE), same as upstream.
-> Installing World of Warcraft outside Battle.net may conflict with
-> Blizzard's terms of service. **Use at your own risk.**
+## About this port
 
-Lightforge installs, patches, verifies and launches World of Warcraft on Linux
-without the Battle.net client. It speaks Blizzard's own distribution protocols
-(TACT and NGDP for the CDN, CASC for local storage), reimplemented in Rust, so
-your game lands in a store the real client can read: point Battle.net at the
-folder and it adopts it, no re-download.
+This repository ([matt-dance/lightforge-mac](https://github.com/matt-dance/lightforge-mac)) is an **unofficial community port** of [LightforgeProject/lightforge](https://github.com/LightforgeProject/lightforge) to macOS Apple Silicon. It is not an official LightforgeProject release and is **not affiliated with, endorsed by, or sponsored by Blizzard Entertainment**.
 
-For everything else (Diablo, Overwatch, Hearthstone, StarCraft) it sets up
-one Battle.net prefix and hands the launch to the client. Those games get a
-tile here and start with one press.
+Licensed under [GPL-3.0](LICENSE), same as upstream. Installing World of Warcraft outside Battle.net may conflict with Blizzard's terms of service. **Use at your own risk.**
 
-## Install
+The original project is a Linux launcher. This fork downloads Blizzard's native macOS client and starts `World of Warcraft.app` directly — no Proton, Wine, or Battle.net desktop app.
 
-Every package and the installer are on the
-[releases page](https://github.com/LightforgeProject/lightforge/releases).
-
-### Debian, Ubuntu, Linux Mint, Pop!_OS
-
-Download the `.deb`, then:
-
-```bash
-sudo apt install ./lightforge_*_amd64.deb
-```
-
-### Fedora
-
-From [COPR](https://copr.fedorainfracloud.org/coprs/simplykenny/lightforge/),
-which keeps it updated with the rest of your system:
-
-```bash
-sudo dnf copr enable simplykenny/lightforge
-sudo dnf install lightforge
-```
-
-Or download the `.rpm` and install it directly:
-
-```bash
-sudo dnf install ./lightforge-*.x86_64.rpm
-```
-
-### openSUSE
-
-Download the `.rpm`, then:
-
-```bash
-sudo zypper install ./lightforge-*.x86_64.rpm
-```
-
-### Arch Linux, CachyOS, EndeavourOS, Manjaro, Omarchy
-
-There's a PKGBUILD in the repository (AUR registrations are closed, so it isn't
-on the AUR yet):
-
-```bash
-git clone https://github.com/LightforgeProject/lightforge.git
-cd lightforge/packaging/aur/lightforge-bin && makepkg -si
-```
-
-### SteamOS, Bazzite and everything else
-
-Download `lightforge-installer.desktop` and double-click it. It fetches the
-newest version, verifies it, installs it into your home folder and starts
-Lightforge, no terminal needed. Run it again any time to update. Or from a
-terminal:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/LightforgeProject/lightforge/main/packaging/installer/install.sh | bash
-```
-
-Bazzite/Fedora Atomic specific:
-
-```bash
-sudo dnf5 copr enable simplykenny/lightforge
-sudo rpm-ostree install lightforge
-sudo systemctl reboot
-```
-
-### AppImage
-
-Download `Lightforge-x86_64.AppImage`, make it executable and start it. It
-updates itself in place. Details in [INSTALL.md](INSTALL.md#appimage). ARM64
-has its own AppImage and tarball; it is
-[experimental](INSTALL.md#arm64).
-
-```bash
-chmod +x Lightforge-x86_64.AppImage && ./Lightforge-x86_64.AppImage
-```
-
-### macOS (Apple Silicon)
-
-Download `Lightforge-*-arm64.dmg` from this fork's
-[releases page](https://github.com/matt-dance/lightforge-mac/releases),
-open it, and drag **Lightforge** to Applications.
-
-**First launch.** A Developer ID / notarized build opens like any other
-app. An ad-hoc CI build is blocked by Gatekeeper until you right-click →
-**Open** the first time, or run:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/Lightforge.app
-```
-
-**First run.** The download region is taken from the system locale
-(Americas → `us`) and can be changed under Settings → Downloads. Press
-**Play** to install or update Forever. Game files default to
-`~/Library/Application Support/Lightforge/games/World of Warcraft`.
-Lightforge's own data lives under
-`~/Library/Application Support/io.Tuxcore.Lightforge`.
-
-**Updates.** Every game update or patch re-extracts
-`World of Warcraft.app` / `BlizzardBrowser.app` and then runs the same
-macOS fixup as a fresh install: CEF `Versions/Current`, `+x`, ad-hoc
-sign, clear quarantine. You should not need to repair by hand after a
-patch.
-
-**If the tile still says Install**, or login aborts after a failed
-extract: cog menu → **Locate / repair existing install**, or
-`lightforge fixup --product wowf --region us`. That repairs the `.app` /
-CEF tree in place (no 85 GB re-download).
-
-Details in [INSTALL.md](INSTALL.md#macos-apple-silicon) and
-[packaging/macos/README.md](packaging/macos/README.md).
-
-### From source
-
-```bash
-git clone https://github.com/LightforgeProject/lightforge.git
-cd lightforge
-cargo build --release --locked
-./target/release/lightforge-gui
-```
-
-[**INSTALL.md**](INSTALL.md) has the details: the Steam Deck, the 32-bit
-package Battle.net's installer needs, and how to remove Lightforge again.
-
-## Tested distros
-
-🟢 tested and working · 🟠 testing still to do · 🔴 not working
-
-| Distro | Status | Notes |
-| --- | :---: | --- |
-| CachyOS | 🟢 | PKGBUILD, Lightforge was developed on CachyOS |
-| Arch Linux | 🟢 | PKGBUILD, Tested on hardware |
-| Omarchy | 🟢 | PKGBUILD, works |
-| EndeavourOS | 🟠 | Not tested yet but PKGBUILD should work |
-| Manjaro | 🟠 | Same as EndeavourOS |
-| Fedora | 🟢 | COPR repo / RPM install, Tested on hardware |
-| Bazzite | 🟢 | dnf5 copr, Desktop and ROG Ally X, reported by players. |
-| SteamOS | 🟢 | install-script, Tested in a VM; a real Steam Deck is next. |
-| Nobara | 🟢 | COPR repo / RPM install, Tested on hardware |
-| Debian | 🟢 | deb file, Tested in a VM. |
-| Ubuntu | 🟠 | not tested yet but should work with deb file |
-| Linux Mint | 🟠 | same as ubuntu |
-| Pop!_OS | 🟠 | same as ubuntu |
-| openSUSE Tumbleweed | 🟠 | not tested yet |
-| NixOS | 🟠 | not tested yet |
-
-If you run it on another distro, or on one of the orange ones, tell me how it
-went in [Discord](https://discord.gg/vtTgmUV9Bq) or through the in-app
-reporter (`☰ › Report a bug`).
+**On Linux?** Use [the original Lightforge](https://github.com/LightforgeProject/lightforge).
 
 ## Requirements
 
 | | |
 | --- | --- |
-| **OS** | Any current Linux (glibc 2.35+ for the release binaries), or macOS 13+ on Apple Silicon. |
-| **GPU** | Vulkan if you have it; it falls back to software rendering if you don't. |
-| **32-bit** | Only for Battle.net, whose installer and client are 32-bit. WoW alone doesn't need it. |
+| **Mac** | Apple Silicon (arm64) only. Intel Macs are not supported. |
+| **OS** | macOS 13.0 Ventura or later (`LSMinimumSystemVersion` in the app bundle). |
+| **Account** | A Battle.net account that can play the World of Warcraft title you install. Lightforge ships no game files. |
 
-Proton-GE is downloaded and verified by Lightforge itself. You don't need
-Steam, Lutris or a system Wine.
+## Install
 
-## What it does
+1. Download the signed and notarized `Lightforge-*-arm64.dmg` from
+   **[GitHub Releases](https://github.com/matt-dance/lightforge-mac/releases/latest)**.
+2. Open the disk image and drag **Lightforge** to **Applications**.
+3. Eject the disk image, then open Lightforge from Applications.
 
-- **Installs and updates WoW itself:** Retail, Classic, Classic Era,
-  Anniversary and WoW: Forever, with their PTR and beta branches. Resumable
-  downloads, pre-downloads before a patch, real CASC storage, and
-  verification of every stored byte.
-- **Finds the games you already have** and adopts them where they are, from
-  Lutris, Bottles, Heroic, Faugus or a hand-made prefix.
-- **Puts games on any drive** you add, Battle.net's own included, and moves
-  them between drives without downloading them again.
-- **Manages addons** from CurseForge, WoWInterface, Tukui and GitHub, with
-  update channels, changelogs, pinning, and WoWUp import and export.
-- **Tunes the game** with the CPU performance profile, MangoHud, Proton's
-  Wayland backend, optional high-resolution textures and your own environment
-  variables.
-- **Sets Battle.net up for you**, then launches its games with one press. The
-  in-game shop works too ([how](TECHDOC.md#the-in-game-shop)).
-- **Plays well on a controller**, with a handheld mode for the Steam Deck and
-  similar devices.
-- **Runs only while it's open:** one native binary, no background service,
-  nothing running when the launcher is closed.
+Release builds are Developer ID signed and notarized, so Gatekeeper treats them like any other Mac app. You do **not** need `xattr -dr com.apple.quarantine`.
 
-## What it doesn't do
+Ad-hoc CI artifacts (pull-request builds, or a release whose signing secrets were missing) are different: those are blocked until you right-click → **Open** the first time. Players should use the Releases DMG.
 
-- **No credential handling.** You sign in to Battle.net yourself, in
-  Blizzard's own window.
-- **It never touches the running game.** No memory reads, no injection.
-  Lightforge manages the prefix, the files and the process around `Wow.exe`,
-  never inside it.
-- **No tracking.** No analytics, no crash pings, no account. It talks to
-  Blizzard's CDN for the game, to GitHub for updates, and to Lightforge's
-  own server for artwork and CurseForge lookups (CurseForge's API needs a
-  key that can't live in a public repo). Bug reports only go out when you
-  press Send, and you see the whole report first. Every host and what it
-  sees is listed in [DISCLAIMER.md](DISCLAIMER.md#what-leaves-your-machine).
-- **WoW first.** Other Blizzard games are installed and run by Battle.net.
-- **Linux, and macOS on Apple Silicon** in this fork. The Linux build still
-  launches `Wow.exe` through Proton-GE. The macOS build downloads the OSX
-  TACT slice and launches `World of Warcraft.app` directly. See
-  [INSTALL.md](INSTALL.md#macos-apple-silicon) and
-  [packaging/macos/README.md](packaging/macos/README.md).
+## First run
 
-## How it was built
+macOS skips the Linux setup wizard. Lightforge opens on the Play page.
 
-I wrote Lightforge with [Claude Code](https://claude.com/claude-code), and I'd
-rather say so here than have anyone wonder. The architecture and every real
-trade-off are my decisions; the protocol work was settled against real CDN
-responses, not against what a model believed about TACT; nothing was committed
-unread. Judge it on the tests, on a 123 GiB Retail install that Battle.net
-adopted and played, and on the code. [TECHDOC.md](TECHDOC.md) goes further into
-both the pipeline and the method.
+1. **Confirm your region.** It is filled from the system locale on first launch (Americas and Oceania → `us`). Change it under **Settings → Downloads** before you install. Installed games keep the region written into their `.build.info`.
+2. **Pick a World of Warcraft title** in the tile band and press **Install**. Lightforge downloads the native macOS (OSX) client into
+   `~/Library/Application Support/Lightforge/games/World of Warcraft`.
+3. **Press Play.** The game starts `World of Warcraft.app` itself. Sign in through the in-game Battle.net window (`Utils/BlizzardBrowser.app`). The Battle.net desktop app is not used on this port.
 
-## This is a beta
+The first **World of Warcraft: Forever** launch can take a few minutes, with a beachball, while the client sets itself up. Lightforge shows a status notice for that first Play press: *“First launch can take a few minutes while WoW sets itself up; it is not frozen.”* Wait it out. Later launches skip the notice.
 
-It has been through full installs of Retail and Classic Era, but it has had
-few machines to run on. Expect rough edges on hardware and distros it hasn't
-met yet, and please tell me when you find them. Known problems and their fixes
-are in [**TROUBLESHOOTING.md**](TROUBLESHOOTING.md); what changed in each
-version is in [RELEASES.md](RELEASES.md).
+## Games
 
-## What's next
+Lightforge installs, patches, and launches World of Warcraft titles itself. The first-run tiles are:
 
-I work on this in my spare time, so there are no dates:
+- World of Warcraft (Retail)
+- World of Warcraft Classic (Classic Era)
+- WoW Classic (progression)
+- **World of Warcraft: Forever**
+- WoW PTR
 
-- A Flatpak, and the AUR once registrations reopen.
-- Adding your games to Steam's library.
+PTR and beta branches for those lines sit on the version picker next to Play. You can add more WoW products later from the games list.
 
-If something is missing for you, tell me in [Discord](https://discord.gg/vtTgmUV9Bq).
+**Not on this port:** other Battle.net titles (Diablo, Overwatch, Hearthstone, StarCraft, and the rest). Those are handed to the Battle.net client on Linux; there is no Wine prefix here, and **Launch via Battle.net** is not used.
+
+## Keeping the game updated
+
+When Blizzard publishes a new build, the Play button becomes **Update**. Press it, or use the cog menu → **Check for Updates**.
+
+Every game update re-extracts `World of Warcraft.app` and `BlizzardBrowser.app`, then runs the same macOS fixup as a fresh install (CEF framework layout, executable bits, ad-hoc sign, clear quarantine). You should not need to repair by hand after a normal patch.
+
+If Blizzard lists the next patch early, the Play page offers a **Pre-download**.
+
+Lightforge itself is updated by downloading a new DMG from
+[Releases](https://github.com/matt-dance/lightforge-mac/releases/latest)
+and replacing the app in Applications.
+
+## Where files live
+
+```text
+~/Library/Application Support/Lightforge/games/World of Warcraft
+    the game (user-writable; no admin)
+
+~/Library/Application Support/io.Tuxcore.Lightforge
+    Lightforge's own data (config, artwork cache, logs)
+
+~/Library/Application Support/io.Tuxcore.Lightforge/logs/lightforge-gui.log
+    the launcher log
+```
+
+Logs rotate at 4 MiB and keep three old files. For more detail, start Lightforge with `LIGHTFORGE_LOG=debug`. The CLI binary at `Lightforge.app/Contents/MacOS/lightforge` writes `lightforge-cli.log` in the same folder.
+
+## Troubleshooting
+
+Start with **Settings → About → Diagnostics**, or run `lightforge doctor` from the CLI. Use **☰ → Report a bug** to send a report you can read before it leaves your machine.
+
+**The tile still says Install, or login aborts after a failed extract.**  
+Cog menu → **Locate / repair existing install**, or:
+
+```bash
+/Applications/Lightforge.app/Contents/MacOS/lightforge fixup --product wowf --region us
+```
+
+That repairs the `.app` / CEF tree in place (no 85 GB re-download). `--local` skips the CDN and only reassembles and signs what is already on disk. Use the product code and region that match your install (`wow`, `wow_classic_era`, `wowf`, …).
+
+**Gatekeeper blocks the app.**  
+You are not on a notarized Releases build. Prefer the [latest release](https://github.com/matt-dance/lightforge-mac/releases/latest). Ad-hoc copies need right-click → **Open** once.
+
+**Play beachballs for a few minutes on the first Forever launch.**  
+Expected. Wait for the in-game login window.
+
+**Login never appears, or the client reaches login and then exits.**  
+Run **Locate / repair existing install** so `BlizzardBrowser.app` and its CEF frameworks can launch.
+
+**“Launch via Battle.net” errors.**  
+On macOS, Play starts `World of Warcraft.app` directly. Use Play, not that button.
+
+**Intel Mac, or another Blizzard game.**  
+Out of scope for this port.
+
+More Linux-oriented cases live in [TROUBLESHOOTING.md](TROUBLESHOOTING.md). Extra Mac packaging notes are in [packaging/macos/README.md](packaging/macos/README.md).
+
+## Build from source
+
+On a Mac with Xcode command-line tools and [Rust](https://rustup.rs/) 1.90 or newer:
+
+```bash
+git clone https://github.com/matt-dance/lightforge-mac.git
+cd lightforge-mac
+cargo build --release --locked --bins
+packaging/macos/bundle.sh
+packaging/macos/sign.sh sign target/dist/Lightforge.app
+packaging/macos/dmg.sh
+```
+
+That writes `target/dist/Lightforge.app` and `target/dist/Lightforge-*-arm64.dmg`. `sign.sh` uses a Developer ID when the signing secrets are set; otherwise it ad-hoc signs. A local ad-hoc build needs right-click → **Open** the first time.
+
+`cargo test --workspace --locked` is what CI runs. The GUI binary is `target/release/lightforge-gui`.
+
+## Releases and signing
+
+For maintainers. Players only need the Releases DMG.
+
+A `v*` tag is the only path that publishes a GitHub release. [`.github/workflows/release.yml`](.github/workflows/release.yml) builds on `macos-14`, signs with a Developer ID and hardened runtime, notarizes (`notarytool submit --wait`), staples the `.app` and the DMG, then uploads `Lightforge-*-arm64.dmg` and `SHA256SUMS.txt`.
+
+Pull requests never see the secrets. [`.github/workflows/macos.yml`](.github/workflows/macos.yml) smoke-tests an ad-hoc DMG on every PR. Signing and notarization on `main` / `workflow_dispatch` use the GitHub environment named `release`. Missing secrets fall back to ad-hoc signing; the job does not fail.
+
+Certificate and App Store Connect API key setup is documented in
+[packaging/macos/README.md](packaging/macos/README.md#signing-and-notarization).
 
 ## Documentation
 
 | | |
 | --- | --- |
-| [INSTALL.md](INSTALL.md) | Installing, the Steam Deck, what each distro needs, removing it |
-| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Known problems and what to do about them |
-| [docs/CLI.md](docs/CLI.md) | The command-line tool: every command, generated from the binary |
-| [TECHDOC.md](TECHDOC.md) | How it works underneath |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Reporting bugs, sending patches, the house rules |
-| [SECURITY.md](SECURITY.md) | Reporting a vulnerability, and how downloads are trusted |
-| [DISCLAIMER.md](DISCLAIMER.md) | Blizzard, the guardrail, and what leaves your machine |
-| [RELEASES.md](RELEASES.md) | What's in each version |
-
-## Support the project
-
-Lightforge is free and I build it in my spare time. If you'd like to support
-it:
-
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/simplykenny)
-[![PayPal](https://img.shields.io/badge/PayPal-support-003087?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/simplykenny)
-
-Telling someone about it works too. Come say hi on
-[Discord](https://discord.gg/vtTgmUV9Bq) or [X](https://x.com/simplyKennybtw).
+| [INSTALL.md](INSTALL.md#macos-apple-silicon) | Extra Mac install notes |
+| [packaging/macos/README.md](packaging/macos/README.md) | Bundle, DMG, Gatekeeper, signing |
+| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Known problems (mostly Linux; Mac cases are above) |
+| [docs/CLI.md](docs/CLI.md) | Command-line tool |
+| [TECHDOC.md](TECHDOC.md) | How the downloader works |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Bug reports and patches |
+| [SECURITY.md](SECURITY.md) | Vulnerability reports |
+| [DISCLAIMER.md](DISCLAIMER.md) | What leaves your machine |
+| [RELEASES.md](RELEASES.md) | Upstream changelog |
 
 ## Legal
 
-Lightforge is an independent, unofficial project, **not affiliated with,
-endorsed by, or sponsored by Blizzard Entertainment**. This Mac port is
-likewise unofficial and is not an official LightforgeProject release.
-World of Warcraft, Battle.net and Blizzard Entertainment are trademarks of
-Blizzard Entertainment, Inc. Lightforge ships no game content: it downloads
-from Blizzard's own CDN with your own account, the same way their client
-does. Installing and playing outside Battle.net may conflict with
-Blizzard's terms of service. **Use at your own risk.** See
-[DISCLAIMER.md](DISCLAIMER.md) for the rest.
+Lightforge is an independent, unofficial project, **not affiliated with, endorsed by, or sponsored by Blizzard Entertainment**. This Mac port is likewise unofficial and is not an official LightforgeProject release. World of Warcraft, Battle.net and Blizzard Entertainment are trademarks of Blizzard Entertainment, Inc.
+
+Lightforge ships no game content: it downloads from Blizzard's own CDN with your own account, the same way their client does. Installing and playing outside Battle.net may conflict with Blizzard's terms of service. **Use at your own risk.** See [DISCLAIMER.md](DISCLAIMER.md).
 
 Licensed under [GPL-3.0](LICENSE).
