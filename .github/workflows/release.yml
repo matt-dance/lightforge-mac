@@ -112,7 +112,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: false
-          prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'rc') || contains(github.ref, 'alpha') }}
+          # This fork only publishes v*-mac.N tags. GitHub hides prereleases
+          # from /releases/latest (beta.10 needed a manual edit after publish).
+          prerelease: false
           files: |
             target/dist/Lightforge-*-arm64.dmg
             target/dist/SHA256SUMS.txt
