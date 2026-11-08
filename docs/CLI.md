@@ -248,7 +248,7 @@ Arguments:
   <FOLDER>  The folder to put it in. The Blizzard root moves it back
 
 Options:
-      --root <ROOT>  Override the Blizzard root (default: ~/Games/Blizzard)
+      --root <ROOT>  Override the install root (Linux: ~/Games/Blizzard; macOS: ~/Library/Application Support/Lightforge)
   -h, --help         Print help
 ```
 
