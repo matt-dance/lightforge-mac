@@ -20,6 +20,34 @@ impl std::fmt::Debug for SleepLock {
     }
 }
 
+/// A folder, through the desktop portal (Linux) or a native dialog (macOS).
+/// Linux uses `ashpd`; `rfd` there talks to libdbus in-process and never
+/// returns. See `pick.rs`.
+#[cfg(target_os = "linux")]
+pub async fn pick_folder() -> Option<std::path::PathBuf> {
+    let request = ashpd::desktop::file_chooser::OpenFileRequest::default()
+        .title("Choose a folder for the Wine prefix")
+        .modal(true)
+        .multiple(false)
+        .directory(true);
+    let files = request.send().await.ok()?.response().ok()?;
+    files.uris().first().and_then(|uri| uri.to_file_path().ok())
+}
+
+#[cfg(target_os = "macos")]
+pub async fn pick_folder() -> Option<std::path::PathBuf> {
+    rfd::AsyncFileDialog::new()
+        .set_title("Choose a folder for the Wine prefix")
+        .pick_folder()
+        .await
+        .map(|file| file.path().to_path_buf())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+pub async fn pick_folder() -> Option<std::path::PathBuf> {
+    None
+}
+
 impl Drop for SleepLock {
     fn drop(&mut self) {
         #[cfg(target_os = "macos")]

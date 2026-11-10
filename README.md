@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/matt-dance/lightforge-mac/actions/workflows/macos.yml/badge.svg)](https://github.com/matt-dance/lightforge-mac/actions/workflows/macos.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-E9AB28?style=flat-square)](LICENSE)
-[![Status: beta](https://img.shields.io/badge/status-1.0.0--beta.10-00B4FF?style=flat-square)](RELEASES.md)
+[![Status: beta](https://img.shields.io/badge/status-1.0.0--beta.11-00B4FF?style=flat-square)](RELEASES.md)
 [![macOS](https://img.shields.io/badge/platform-macOS%20arm64-8A94A3?style=flat-square)](#install)
 
 </div>
@@ -150,7 +150,7 @@ That writes `target/dist/Lightforge.app` and `target/dist/Lightforge-*-arm64.dmg
 
 For maintainers. Players only need the Releases DMG.
 
-A `v*` tag is the only path that publishes a GitHub release. [`.github/workflows/release.yml`](.github/workflows/release.yml) builds on `macos-14`, signs with a Developer ID and hardened runtime, notarizes (`notarytool submit --wait`), staples the `.app` and the DMG, then uploads `Lightforge-*-arm64.dmg` and `SHA256SUMS.txt`.
+A `v*` tag is the only path that publishes a GitHub release. [`.github/workflows/release.yml`](.github/workflows/release.yml) builds on `macos-15`, signs with a Developer ID and hardened runtime, notarizes (`notarytool submit --wait`), staples the `.app` and the DMG, then uploads `Lightforge-*-arm64.dmg` and `SHA256SUMS.txt`.
 
 Pull requests never see the secrets. [`.github/workflows/macos.yml`](.github/workflows/macos.yml) smoke-tests an ad-hoc DMG on every PR. Signing and notarization on `main` / `workflow_dispatch` use the GitHub environment named `release`. Missing secrets fall back to ad-hoc signing; the job does not fail.
 

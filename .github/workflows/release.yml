@@ -14,7 +14,9 @@ env:
 jobs:
   macos:
     name: Sign, notarize, publish
-    runs-on: macos-14
+    # macos-14 retired 2026-11-02; GitHub cancels it with
+    # "The configuration 'macos-14-arm64-us-default' is not supported".
+    runs-on: macos-15
     timeout-minutes: 90
     environment: release
     permissions:
@@ -112,7 +114,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: false
-          prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'rc') || contains(github.ref, 'alpha') }}
+          # This fork only publishes v*-mac.N tags. GitHub hides prereleases
+          # from /releases/latest (beta.10 needed a manual edit after publish).
+          prerelease: false
           files: |
             target/dist/Lightforge-*-arm64.dmg
             target/dist/SHA256SUMS.txt

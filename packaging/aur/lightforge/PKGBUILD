@@ -3,12 +3,12 @@
 # Builds from the tagged source. For the prebuilt binaries, see `lightforge-bin`.
 
 pkgname=lightforge
-pkgver=1.0.0beta.10
+pkgver=1.0.0beta.11
 pkgrel=1
 # The upstream tag. AUR versions may not contain a hyphen, so `1.0.0-beta.5`
 # becomes `1.0.0beta.5` here — which `vercmp` orders *before* `1.0.0`, so the
 # eventual stable release upgrades cleanly and needs no `epoch`.
-_tag=v1.0.0-beta.10
+_tag=v1.0.0-beta.11
 pkgdesc='Install, update and play World of Warcraft on Linux, and a home for all your other Battle.net games'
 arch=('x86_64')
 url='https://github.com/LightforgeProject/lightforge'
