@@ -48,14 +48,24 @@ fn at(path: &Path) -> impl FnOnce(io::Error) -> (PathBuf, io::Error) + '_ {
 /// to a shared folder must not become a second copy of it.
 pub(crate) fn copy_tree(from: &Path, to: &Path) -> Result<(), (PathBuf, io::Error)> {
     copy_entries(from, to)?;
-    // One flush for the whole filesystem: an fsync per file costs seconds
-    // on a prefix's tens of thousands.
+    // One flush for the whole tree: an fsync per file costs seconds on a
+    // prefix's tens of thousands. Linux can flush the filesystem; Darwin
+    // has no `syncfs(2)`, so the destination directory is fsynced instead.
     let dir = std::fs::File::open(to).map_err(at(to))?;
-    // SAFETY: `dir` is an open descriptor for the whole call.
-    match unsafe { libc::syncfs(std::os::fd::AsRawFd::as_raw_fd(&dir)) } {
-        0 => Ok(()),
-        _ => Err((to.to_path_buf(), io::Error::last_os_error())),
+    flush_copied_tree(&dir).map_err(|e| (to.to_path_buf(), e))
+}
+
+fn flush_copied_tree(dir: &std::fs::File) -> io::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        // SAFETY: `dir` is an open descriptor for the whole call.
+        match unsafe { libc::syncfs(std::os::fd::AsRawFd::as_raw_fd(dir)) } {
+            0 => Ok(()),
+            _ => Err(io::Error::last_os_error()),
+        }
     }
+    #[cfg(not(target_os = "linux"))]
+    dir.sync_all()
 }
 
 fn copy_entries(from: &Path, to: &Path) -> Result<(), (PathBuf, io::Error)> {
