@@ -23,59 +23,12 @@
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use crate::net::{Http, NetError, MAX_CDN_BYTES};
 
 use crate::text::hex;
 use super::version::Cdn;
-
-/// Failure counts per origin, shared by every [`Client`] in this process.
-/// Hosts that keep timing out (level3 was the usual one) sink in the order.
-fn host_scores() -> &'static Mutex<HashMap<String, u32>> {
-    static SCORES: OnceLock<Mutex<HashMap<String, u32>>> = OnceLock::new();
-    SCORES.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn record_failure(origin: &str) {
-    if let Ok(mut scores) = host_scores().lock() {
-        *scores.entry(origin.to_owned()).or_insert(0) += 1;
-    }
-}
-
-fn record_success(origin: &str) {
-    if let Ok(mut scores) = host_scores().lock() {
-        if let Some(count) = scores.get_mut(origin) {
-            *count = count.saturating_sub(1);
-            if *count == 0 {
-                scores.remove(origin);
-            }
-        }
-    }
-}
-
-fn rank_endpoints(endpoints: &[Endpoint]) -> Vec<&Endpoint> {
-    let scores = host_scores().lock().ok();
-    let mut order: Vec<(u32, usize, &Endpoint)> = endpoints
-        .iter()
-        .enumerate()
-        .map(|(i, endpoint)| {
-            let fails = scores
-                .as_ref()
-                .and_then(|s| s.get(&endpoint.origin).copied())
-                .unwrap_or(0);
-            (fails, i, endpoint)
-        })
-        .collect();
-    order.sort_by_key(|(fails, i, _)| (*fails, *i));
-    order.into_iter().map(|(_, _, endpoint)| endpoint).collect()
-}
-
-#[cfg(test)]
-fn reset_host_scores() {
-    if let Ok(mut scores) = host_scores().lock() {
-        scores.clear();
-    }
-}
 
 /// Where a hash is fetched from within a CDN path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,16 +114,57 @@ impl Endpoint {
 
 /// One endpoint failed; the next is tried. Logged at debug, with a throttled
 /// warning: an outage fails every request.
-fn endpoint_failed(url: String, source: NetError) -> CdnError {
+fn endpoint_failed(url: &str, source: &NetError) {
     static SLOT: crate::logging::Throttle = crate::logging::Throttle::new();
-    tracing::debug!("cdn request failed, trying the next host: {url}: {}", crate::error::chain(&source));
+    tracing::debug!("cdn request failed, trying the next host: {url}: {}", crate::error::chain(source));
     if let Some(held) = SLOT.pass(10) {
         tracing::warn!(
             "cdn request failed, trying the next host ({held} similar since the last note): {url}: {}",
-            crate::error::chain(&source)
+            crate::error::chain(source)
         );
     }
-    CdnError::Fetch { url, source }
+}
+
+/// What one endpoint made of a request.
+enum Tried<T> {
+    Got(T),
+    /// No proper answer: refused, timed out, cut off, or a server error. The
+    /// host rests, and the request is worth one more pass.
+    Down(CdnError),
+    /// An answer, wrong for this file: missing there, or failing its check.
+    Wrong(CdnError),
+}
+
+impl<T> Tried<T> {
+    fn failed(url: String, source: NetError) -> Self {
+        endpoint_failed(&url, &source);
+        let down = match &source {
+            NetError::Request { .. } | NetError::Truncated { .. } => true,
+            NetError::Status { status, .. } => *status >= 500 || *status == 429,
+            _ => false,
+        };
+        let error = CdnError::Fetch { url, source };
+        if down { Self::Down(error) } else { Self::Wrong(error) }
+    }
+}
+
+/// How long a host that did not answer is tried last. Without it, a host
+/// that times out costs the full connect timeout on every request of a
+/// download, each one failing over the same way.
+const REST: Duration = Duration::from_secs(5 * 60);
+
+/// Hosts resting after a failure, by origin, until when. Shared by every
+/// client: the network they are failing on is.
+fn resting() -> std::sync::MutexGuard<'static, HashMap<String, Instant>> {
+    static RESTING: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+    RESTING.get_or_init(Default::default).lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Before the one retry, so a blip passes: 1 to 2 s, apart for each request
+/// so a whole download does not come back at once.
+fn backoff() -> Duration {
+    use std::hash::{BuildHasher, RandomState};
+    Duration::from_millis(1000 + RandomState::new().hash_one(Instant::now()) % 1000)
 }
 
 /// Scheme and host of a server URL, dropping path and query.
@@ -207,28 +201,63 @@ impl Client {
         &self.endpoints
     }
 
-    fn ranked(&self) -> Vec<&Endpoint> {
-        rank_endpoints(&self.endpoints)
+    /// The endpoints in the order to try them: resting ones last, still tried.
+    fn in_order(&self) -> Vec<&Endpoint> {
+        let now = Instant::now();
+        let resting = resting();
+        let rests = |e: &&Endpoint| resting.get(&e.origin).is_some_and(|until| *until > now);
+        let (tired, fresh): (Vec<&Endpoint>, Vec<&Endpoint>) = self.endpoints.iter().partition(rests);
+        fresh.into_iter().chain(tired).collect()
     }
 
-    /// Fetch a name, trying each endpoint in turn, without checking the bytes:
-    /// the caller verifies by the rule for its kind of name (module docs).
-    pub async fn fetch(&self, http: &Http, kind: Kind, hash: &str) -> Result<Vec<u8>, CdnError> {
-        let mut last: Option<CdnError> = None;
-        for endpoint in self.ranked() {
-            let url = endpoint.url(kind, hash)?;
-            match http.get_bytes(&url, MAX_CDN_BYTES).await {
-                Ok(bytes) => {
-                    record_success(&endpoint.origin);
-                    return Ok(bytes);
-                }
-                Err(source) => {
-                    record_failure(&endpoint.origin);
-                    last = Some(endpoint_failed(url, source));
+    /// Ask each endpoint in turn until one answers right, and once more
+    /// after a pause when one was down.
+    async fn across<T, Fut>(
+        &self,
+        url: impl Fn(&Endpoint) -> Result<String, CdnError>,
+        mut fetch: impl FnMut(String) -> Fut,
+    ) -> Result<T, CdnError>
+    where
+        Fut: std::future::Future<Output = Tried<T>>,
+    {
+        let mut last = None;
+        for pass in 0..2 {
+            let mut down = false;
+            for endpoint in self.in_order() {
+                match fetch(url(endpoint)?).await {
+                    Tried::Got(value) => {
+                        resting().remove(&endpoint.origin);
+                        return Ok(value);
+                    }
+                    Tried::Down(e) => {
+                        resting().insert(endpoint.origin.clone(), Instant::now() + REST);
+                        down = true;
+                        last = Some(e);
+                    }
+                    Tried::Wrong(e) => last = Some(e),
                 }
             }
+            if !down || pass == 1 {
+                break;
+            }
+            tokio::time::sleep(backoff()).await;
         }
         Err(last.unwrap_or(CdnError::NoEndpoints))
+    }
+
+    /// Fetch a name without checking the bytes: the caller verifies by the
+    /// rule for its kind of name (module docs).
+    pub async fn fetch(&self, http: &Http, kind: Kind, hash: &str) -> Result<Vec<u8>, CdnError> {
+        self.across(
+            |endpoint| endpoint.url(kind, hash),
+            |url| async move {
+                match http.get_bytes(&url, MAX_CDN_BYTES).await {
+                    Ok(bytes) => Tried::Got(bytes),
+                    Err(source) => Tried::failed(url, source),
+                }
+            },
+        )
+        .await
     }
 
     /// Fetch a file named by the MD5 of its bytes (a config of either kind) and
@@ -241,32 +270,21 @@ impl Client {
         hash: &str,
     ) -> Result<Vec<u8>, CdnError> {
         let expected = parse_md5(hash)?;
-        let mut last: Option<CdnError> = None;
-
-        for endpoint in self.ranked() {
-            let url = endpoint.url(kind, hash)?;
-            match http.get_bytes(&url, MAX_CDN_BYTES).await {
-                Ok(bytes) => {
-                    let actual = *md5::compute(&bytes);
-                    if actual == expected {
-                        record_success(&endpoint.origin);
-                        return Ok(bytes);
-                    }
-                    record_failure(&endpoint.origin);
-                    last = Some(CdnError::HashMismatch {
-                        url,
-                        expected: hash.to_ascii_lowercase(),
-                        found: hex(&actual),
-                    });
+        self.across(
+            |endpoint| endpoint.url(kind, hash),
+            |url| async move {
+                let bytes = match http.get_bytes(&url, MAX_CDN_BYTES).await {
+                    Ok(bytes) => bytes,
+                    Err(source) => return Tried::failed(url, source),
+                };
+                let actual = *md5::compute(&bytes);
+                if actual == expected {
+                    return Tried::Got(bytes);
                 }
-                Err(source) => {
-                    record_failure(&endpoint.origin);
-                    last = Some(endpoint_failed(url, source));
-                }
-            }
-        }
-
-        Err(last.unwrap_or(CdnError::NoEndpoints))
+                Tried::Wrong(CdnError::HashMismatch { url, expected: hash.to_ascii_lowercase(), found: hex(&actual) })
+            },
+        )
+        .await
     }
 
     /// Fetch a config and verify it by its MD5.
@@ -283,35 +301,23 @@ impl Client {
         hash: &str,
         expect_size: Option<u64>,
     ) -> Result<Vec<u8>, CdnError> {
-        let mut last: Option<CdnError> = None;
-
-        for endpoint in self.ranked() {
-            let url = endpoint.index_url(hash)?;
-            match http.get_bytes(&url, MAX_CDN_BYTES).await {
-                Ok(bytes) => match expect_size {
-                    Some(want) if bytes.len() as u64 != want => {
-                        record_failure(&endpoint.origin);
-                        last = Some(CdnError::WrongSize { url, expected: want, found: bytes.len() as u64 });
-                    }
-                    _ => match super::archive::verify(&bytes, hash) {
-                        Ok(()) => {
-                            record_success(&endpoint.origin);
-                            return Ok(bytes);
-                        }
-                        Err(source) => {
-                            record_failure(&endpoint.origin);
-                            last = Some(CdnError::BadIndex { url, source });
-                        }
-                    },
-                },
-                Err(source) => {
-                    record_failure(&endpoint.origin);
-                    last = Some(endpoint_failed(url, source));
+        self.across(
+            |endpoint| endpoint.index_url(hash),
+            |url| async move {
+                let bytes = match http.get_bytes(&url, MAX_CDN_BYTES).await {
+                    Ok(bytes) => bytes,
+                    Err(source) => return Tried::failed(url, source),
+                };
+                if let Some(want) = expect_size.filter(|want| bytes.len() as u64 != *want) {
+                    return Tried::Wrong(CdnError::WrongSize { url, expected: want, found: bytes.len() as u64 });
                 }
-            }
-        }
-
-        Err(last.unwrap_or(CdnError::NoEndpoints))
+                match super::archive::verify(&bytes, hash) {
+                    Ok(()) => Tried::Got(bytes),
+                    Err(source) => Tried::Wrong(CdnError::BadIndex { url, source }),
+                }
+            },
+        )
+        .await
     }
 
     /// Fetch a byte range of an archive, as served. Unverified: a run covers
@@ -322,23 +328,16 @@ impl Client {
         archive: &str,
         range: &str,
     ) -> Result<Vec<u8>, CdnError> {
-        let mut last: Option<CdnError> = None;
-
-        for endpoint in self.ranked() {
-            let url = endpoint.url(Kind::Data, archive)?;
-            match http.get_range(&url, range).await {
-                Ok(bytes) => {
-                    record_success(&endpoint.origin);
-                    return Ok(bytes);
+        self.across(
+            |endpoint| endpoint.url(Kind::Data, archive),
+            |url| async move {
+                match http.get_range(&url, range).await {
+                    Ok(bytes) => Tried::Got(bytes),
+                    Err(source) => Tried::failed(url, source),
                 }
-                Err(source) => {
-                    record_failure(&endpoint.origin);
-                    last = Some(endpoint_failed(url, source));
-                }
-            }
-        }
-
-        Err(last.unwrap_or(CdnError::NoEndpoints))
+            },
+        )
+        .await
     }
 
     /// Fetch a loose file (one the file index lists), decode it, and verify it
@@ -361,41 +360,16 @@ impl Client {
         expect_ckey: &super::config::CKey,
     ) -> Result<(Vec<u8>, Vec<u8>), CdnError> {
         let hash = hex(ekey);
-        let mut last: Option<CdnError> = None;
-
-        for endpoint in self.ranked() {
-            let url = endpoint.url(Kind::Data, &hash)?;
-            let raw = match http.get_bytes(&url, MAX_CDN_BYTES).await {
-                Ok(bytes) => bytes,
-                Err(source) => {
-                    record_failure(&endpoint.origin);
-                    last = Some(CdnError::Fetch { url, source });
-                    continue;
+        self.across(
+            |endpoint| endpoint.url(Kind::Data, &hash),
+            |url| async move {
+                match http.get_bytes(&url, MAX_CDN_BYTES).await {
+                    Ok(raw) => checked(url, expect_ckey, &raw).map(|decoded| (raw, decoded)),
+                    Err(source) => Tried::failed(url, source),
                 }
-            };
-
-            match super::blte::decode(&raw) {
-                Ok(decoded) => {
-                    let actual = *md5::compute(&decoded);
-                    if &actual == expect_ckey {
-                        record_success(&endpoint.origin);
-                        return Ok((raw, decoded));
-                    }
-                    record_failure(&endpoint.origin);
-                    last = Some(CdnError::HashMismatch {
-                        url,
-                        expected: hex(expect_ckey),
-                        found: hex(&actual),
-                    });
-                }
-                Err(e) => {
-                    record_failure(&endpoint.origin);
-                    last = Some(CdnError::Decode { url, detail: e.to_string() });
-                }
-            }
-        }
-
-        Err(last.unwrap_or(CdnError::NoEndpoints))
+            },
+        )
+        .await
     }
 
     /// Fetch one file out of an archive by range request, decode it, and
@@ -408,42 +382,43 @@ impl Client {
         expect_ckey: &super::config::CKey,
     ) -> Result<Vec<u8>, CdnError> {
         let range = located.range().ok_or_else(|| CdnError::EmptyRange { archive: archive.to_owned() })?;
-        let mut last: Option<CdnError> = None;
-
-        for endpoint in self.ranked() {
-            let url = endpoint.url(Kind::Data, archive)?;
-            let raw = match http.get_range(&url, &range).await {
-                Ok(bytes) => bytes,
-                Err(source) => {
-                    record_failure(&endpoint.origin);
-                    last = Some(CdnError::Fetch { url, source });
-                    continue;
-                }
-            };
-
-            // On the CDN there is no CASC entry header in front.
-            match super::blte::decode(&raw) {
-                Ok(decoded) => {
-                    let actual = *md5::compute(&decoded);
-                    if &actual == expect_ckey {
-                        record_success(&endpoint.origin);
-                        return Ok(decoded);
+        self.across(
+            |endpoint| endpoint.url(Kind::Data, archive),
+            |url| {
+                let range = &range;
+                async move {
+                    // On the CDN there is no CASC entry header in front.
+                    match http.get_range(&url, range).await {
+                        Ok(raw) => checked(url, expect_ckey, &raw),
+                        Err(source) => Tried::failed(url, source),
                     }
-                    record_failure(&endpoint.origin);
-                    last = Some(CdnError::HashMismatch {
-                        url,
-                        expected: hex(expect_ckey),
-                        found: hex(&actual),
-                    });
                 }
-                Err(e) => {
-                    record_failure(&endpoint.origin);
-                    last = Some(CdnError::Decode { url, detail: e.to_string() });
-                }
-            }
-        }
+            },
+        )
+        .await
+    }
+}
 
-        Err(last.unwrap_or(CdnError::NoEndpoints))
+/// `raw` decoded and checked against the content key it was fetched for.
+fn checked(url: String, expect_ckey: &super::config::CKey, raw: &[u8]) -> Tried<Vec<u8>> {
+    let decoded = match super::blte::decode(raw) {
+        Ok(decoded) => decoded,
+        Err(e) => return Tried::Wrong(CdnError::Decode { url, detail: e.to_string() }),
+    };
+    let actual = *md5::compute(&decoded);
+    if &actual == expect_ckey {
+        return Tried::Got(decoded);
+    }
+    Tried::Wrong(CdnError::HashMismatch { url, expected: hex(expect_ckey), found: hex(&actual) })
+}
+
+impl<T> Tried<T> {
+    fn map<U>(self, f: impl FnOnce(T) -> U) -> Tried<U> {
+        match self {
+            Self::Got(value) => Tried::Got(f(value)),
+            Self::Down(e) => Tried::Down(e),
+            Self::Wrong(e) => Tried::Wrong(e),
+        }
     }
 }
 
@@ -564,30 +539,59 @@ mod tests {
         assert_eq!(endpoints.len(), 1, "{endpoints:?}");
     }
 
+    /// A host that answers every request with `status` and `body`.
+    fn host(status: &'static str, body: &'static [u8]) -> Endpoint {
+        use std::io::{Read, Write};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let _ = stream.read(&mut [0u8; 4096]);
+                let length = body.len();
+                let head = format!("HTTP/1.1 {status}\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n");
+                let _ = stream.write_all(head.as_bytes());
+                let _ = stream.write_all(body);
+            }
+        });
+        Endpoint { origin, path: "tpr/wow".into() }
+    }
+
+    /// A port nothing listens on: the connection is refused.
+    fn dead_host() -> Endpoint {
+        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        Endpoint { origin: format!("http://127.0.0.1:{port}"), path: "tpr/wow".into() }
+    }
+
+    #[tokio::test]
+    async fn a_host_that_did_not_answer_is_asked_last_from_then_on() {
+        let (dead, alive) = (dead_host(), host("200 OK", b"bytes"));
+        let client = Client::new(vec![dead.clone(), alive.clone()]).unwrap();
+        let http = Http::new().unwrap();
+
+        assert_eq!(client.fetch(&http, Kind::Data, "abcd1234").await.unwrap(), b"bytes");
+
+        assert_eq!(client.in_order(), [&alive, &dead]);
+        // Another client on the same network knows too.
+        let other = Client::new(vec![dead.clone(), alive.clone()]).unwrap();
+        assert_eq!(other.in_order(), [&alive, &dead]);
+    }
+
+    /// A 404 is that host lacking one file, not the host being down.
+    #[tokio::test]
+    async fn a_host_missing_a_file_is_not_rested() {
+        let (missing, alive) = (host("404 Not Found", b""), host("200 OK", b"bytes"));
+        let client = Client::new(vec![missing.clone(), alive.clone()]).unwrap();
+
+        client.fetch(&Http::new().unwrap(), Kind::Data, "abcd1234").await.unwrap();
+
+        assert_eq!(client.in_order(), [&missing, &alive]);
+    }
+
     #[test]
     fn a_client_needs_at_least_one_endpoint() {
         assert!(matches!(Client::new(Vec::new()), Err(CdnError::NoEndpoints)));
         assert!(Client::from_cdn(&cdn_row()).is_ok());
-    }
-
-    #[test]
-    fn hosts_that_keep_failing_are_tried_last() {
-        reset_host_scores();
-        let good = Endpoint {
-            origin: "https://us.cdn.blizzard.com".into(),
-            path: "tpr/wow".into(),
-        };
-        let bad = Endpoint {
-            origin: "https://level3.ssl.blizzard.com".into(),
-            path: "tpr/wow".into(),
-        };
-        record_failure(&bad.origin);
-        record_failure(&bad.origin);
-        let endpoints = [bad.clone(), good.clone()];
-        let ranked = rank_endpoints(&endpoints);
-        assert_eq!(ranked[0].origin, good.origin);
-        assert_eq!(ranked[1].origin, bad.origin);
-        reset_host_scores();
     }
 
     #[test]

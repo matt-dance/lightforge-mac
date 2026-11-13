@@ -95,9 +95,9 @@ pub(crate) enum Command {
     },
     /// Launch the game, the `[ PLAY ]` path.
     ///
-    /// On Linux this runs pre-flight then starts `Wow.exe` through Proton.
-    /// On macOS it starts `World of Warcraft.app` directly. Battle.net is
-    /// not involved.
+    /// On Linux this runs pre-flight then starts the game as PLAY does: from
+    /// its own library, under its Proton pin and Game Settings. On macOS it
+    /// starts `World of Warcraft.app` directly. Battle.net is not involved.
     Play {
         /// Product to launch, e.g. `wow` or `wow_classic`.
         #[arg(long, default_value = "wow", value_parser = commands::product_code)]
