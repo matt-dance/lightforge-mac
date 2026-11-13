@@ -51,9 +51,10 @@ pub fn wrap(cmd: Command, line: &str) -> Command {
 /// Start the launch options beside `game`, which Battle.net started,
 /// without waiting for them. `true` when they were started.
 ///
-/// `%command%` is `tail --pid`, which returns once the game is gone: the game
-/// is no child of the shell, so `wait` cannot see it. Their exit status, and
-/// what they said on stderr when they failed, go to the log.
+/// `%command%` waits until `game` is gone: the game is no child of the
+/// shell, so `wait` cannot see it. Linux uses GNU `tail --pid`; Darwin
+/// has no such flag, so a `kill -0` loop. Their exit status, and what
+/// they said on stderr when they failed, go to the log.
 pub fn run_beside(line: &str, product: &ProductCode, game: &GameProcess) -> bool {
     let Some(script) = script(line) else {
         return false;
@@ -63,7 +64,7 @@ pub fn run_beside(line: &str, product: &ProductCode, game: &GameProcess) -> bool
     cmd.arg("-c")
         .arg(&script)
         .arg(SHELL_NAME)
-        .args(["tail", &format!("--pid={}", game.pid), "-f", "/dev/null"])
+        .args(wait_for_pid_args(game.pid))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
@@ -83,6 +84,26 @@ pub fn run_beside(line: &str, product: &ProductCode, game: &GameProcess) -> bool
         }
     }
     true
+}
+
+/// Host argv substituted for `%command%` beside a game Lightforge did not
+/// start: returns once `pid` has exited. A zombie still counts as alive,
+/// matching Wine until it reaps.
+fn wait_for_pid_args(pid: u32) -> Vec<String> {
+    #[cfg(target_os = "linux")]
+    {
+        vec!["tail".into(), format!("--pid={pid}"), "-f".into(), "/dev/null".into()]
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        vec![
+            "sh".into(),
+            "-c".into(),
+            "while kill -0 \"$1\" 2>/dev/null; do sleep 0.2; done".into(),
+            SHELL_NAME.into(),
+            pid.to_string(),
+        ]
+    }
 }
 
 /// Wait for the launch options off-thread and log how they ended.
@@ -158,11 +179,14 @@ mod tests {
     #[test]
     fn the_wrapped_game_keeps_its_environment_and_folder() {
         let dir = tempfile::tempdir().unwrap();
+        // Darwin's `/var` is a symlink to `/private/var`; `pwd` prints the
+        // real path, so the launch has to start in that spelling too.
+        let cwd = dir.path().canonicalize().unwrap();
         let mut game = Command::new("sh");
         game.arg("-c").arg("printf '%s|%s' \"$STEAM_COMPAT_DATA_PATH\" \"$(pwd)\"");
-        game.env("STEAM_COMPAT_DATA_PATH", "/compat").current_dir(dir.path());
+        game.env("STEAM_COMPAT_DATA_PATH", "/compat").current_dir(&cwd);
         let out = wrap(game, "%command%").output().unwrap();
-        assert_eq!(String::from_utf8_lossy(&out.stdout), format!("/compat|{}", dir.path().display()));
+        assert_eq!(String::from_utf8_lossy(&out.stdout), format!("/compat|{}", cwd.display()));
     }
 
     // The shape of a Steam user's script: helpers up, the game, helpers down.
@@ -190,7 +214,7 @@ mod tests {
         let line = format!("echo up >> '{0}'; %command%; echo down >> '{0}'", log.display());
         assert!(run_beside(&line, &ProductCode::Retail, &game));
         wait_until("the line started", || read() == "up\n");
-        // Longer than `tail --pid` takes to notice a game that is gone.
+        // Longer than the wait takes to notice a game that is gone.
         std::thread::sleep(Duration::from_millis(1500));
         assert_eq!(read(), "up\n", "nothing after %command% while the game runs");
 
