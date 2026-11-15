@@ -131,7 +131,7 @@ impl Lightforge {
                     tasks::offerings(
                         self.http.clone(),
                         code.clone(),
-                        self.config.region,
+                        self.build_region(&code),
                         self.opted_optional(&code),
                         None,
                     ),

@@ -69,12 +69,12 @@ Maintainers setting up Developer ID secrets: see
 
 Download `lightforge_<version>_amd64.deb` from the
 [releases page](https://github.com/LightforgeProject/lightforge/releases).
-The file name says `1.0.0.beta.11` because GitHub doesn't allow a `~` in an
+The file name says `1.0.0.beta.12` because GitHub doesn't allow a `~` in an
 asset name. The version inside the package, which `apt` reads and sorts by,
-is `1.0.0~beta.11`:
+is `1.0.0~beta.12`:
 
 ```bash
-sudo apt install ./lightforge_1.0.0.beta.11-1_amd64.deb
+sudo apt install ./lightforge_1.0.0.beta.12-1_amd64.deb
 ```
 
 It needs glibc 2.35 or newer: Ubuntu 22.04, Debian 12 or anything later.
@@ -100,7 +100,7 @@ Without the repository, download `lightforge-<version>.x86_64.rpm` from the
 and install it by hand. You then download each new release yourself:
 
 ```bash
-sudo dnf install ./lightforge-1.0.0.beta.11-1.x86_64.rpm
+sudo dnf install ./lightforge-1.0.0.beta.12-1.x86_64.rpm
 ```
 
 The same file installs on openSUSE with `sudo zypper install`. Like the
@@ -108,18 +108,15 @@ The same file installs on openSUSE with `sudo zypper install`. Like the
 
 ## Arch, CachyOS, EndeavourOS, Omarchy
 
-**Not on the AUR yet.** AUR registrations are closed, so I have no account to
-upload from. The PKGBUILDs are finished and in the repository, so for now:
+On the AUR, with any AUR helper:
 
 ```bash
-git clone https://git.tuxcore.pro/kenny/lightforge.git
-cd lightforge/packaging/aur/lightforge-bin   # prebuilt binaries
-makepkg -si
+yay -S lightforge-bin   # prebuilt binaries
+yay -S lightforge       # built from source
 ```
 
-Use `packaging/aur/lightforge` instead to build it from source. I built and
-installed both in a clean Arch container before committing them, and both go
-on the AUR as `lightforge` and `lightforge-bin` once I can get an account.
+Both packages are the PKGBUILDs in `packaging/aur`, uploaded unchanged, so
+`makepkg -si` in either folder installs the same thing without a helper.
 
 ## SteamOS, Bazzite and other systems
 
@@ -204,6 +201,12 @@ any ARM machine, tell me how it went, with the output of `lightforge doctor`.
 nix run github:LightforgeProject/lightforge
 ```
 
+For the command line only, without the launcher:
+
+```bash
+nix run github:LightforgeProject/lightforge#lightforge-cli
+```
+
 The flake starts Lightforge through `steam-run-free`, because Proton needs a
 32-bit loader in the standard paths and NixOS has none. Keep
 `hardware.graphics.enable32Bit = true;` set for Battle.net's 32-bit graphics.
@@ -259,6 +262,11 @@ desktop app needs is loaded at runtime.
 **Fonts.** Text is drawn with whatever fontconfig provides; no fonts are
 built in. Every normal desktop has them. A minimal container doesn't, and
 shows blank labels.
+
+**A desktop portal.** The file and folder pickers go through
+`xdg-desktop-portal` and a backend for it. Every desktop environment ships
+one; on a bare window manager (sway, i3), install `xdg-desktop-portal-gtk` or
+`xdg-desktop-portal-wlr`, or Browse does nothing.
 
 **A GPU driver.** The launcher uses Vulkan and falls back to software
 rendering by itself if Vulkan doesn't work, so it starts almost anywhere. If
@@ -354,7 +362,8 @@ When a new version is out, Lightforge shows an update notice:
   asks for your password. Or install the new file over the old one yourself.
 - **Fedora COPR and Fedora Atomic**: `sudo dnf upgrade`, or your system's
   normal update.
-- **Arch**: `makepkg -si` again with the new PKGBUILD.
+- **Arch**: your AUR helper's update (`yay -Syu`), or the notice, which builds
+  the new PKGBUILD in a terminal.
 - **From source**:
 
 ```bash

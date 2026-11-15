@@ -10,7 +10,7 @@ use super::prepare::prepare;
 use super::{io, Event, InstallError, Options};
 use crate::net::Http;
 use crate::product::ProductCode;
-use crate::tact::download::{extract_install, write_flavor_info, Cancel, Catalog, Source};
+use crate::tact::download::{extract_install, locate_install, write_flavor_info, Cancel, Catalog, Source};
 
 /// Re-extract the install-manifest files into `dest`'s flavor folder and
 /// run the macOS launch fixup (framework assembly, `+x`, ad-hoc sign of
@@ -38,22 +38,28 @@ pub async fn repair_install_files(
     let prepared = prepare(http, dest, code, &options, on_event).await?;
     let flavor_dir = dest.join(&prepared.flavor);
     let selected = prepared.install.select(&prepared.tags);
-    let catalog = Catalog {
-        encoding: &prepared.encoding,
-        locations: &prepared.locations,
-        loose: &prepared.loose,
-    };
+    let files = locate_install(
+        &selected,
+        Catalog {
+            encoding: &prepared.encoding,
+            locations: &prepared.locations,
+            loose: &prepared.loose,
+        },
+    );
     let source = Source { http, client: &prepared.client };
     let extracted = extract_install(
         source,
-        &selected,
-        catalog,
+        &files,
         &flavor_dir,
         cancel,
         |e| on_event(Event::InstallFile { path: e.path.clone(), bytes: e.bytes }),
     )
     .await?;
-    on_event(Event::Extracted { files: extracted.written.len(), bytes: extracted.bytes() });
+    on_event(Event::Extracted {
+        files: extracted.written.len(),
+        bytes: extracted.bytes(),
+        unchanged: extracted.unchanged,
+    });
     for (path, reason) in &extracted.failed {
         tracing::warn!("install file {path} failed: {reason}");
     }
