@@ -2,6 +2,7 @@
 # Builds the artwork Steam shows for the Lightforge shortcut, from the app
 # icon, the wordmark and the launcher's own backdrop colours. Run from this
 # directory; needs rsvg-convert and ImageMagick 7. The outputs are committed.
+# `python3 packaging/brand/compose.py` regenerates the same files (ImageMagick 6).
 set -eu
 ICON=../../../../packaging/icons/hicolor/scalable/apps/pro.tuxcore.Lightforge.svg
 WORDMARK=../wordmark.png

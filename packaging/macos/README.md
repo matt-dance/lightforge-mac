@@ -23,7 +23,9 @@ packaging/macos/dmg.sh
 ```
 
 `bundle.sh` writes `Info.plist`, copies both binaries, and builds
-`Lightforge.icns` from the PNG icons with `iconutil`.
+`Lightforge.icns` from the PNG icons with `iconutil`. Those icons
+carry a small "Mac" pill so this port is distinct from upstream;
+`packaging/brand/compose.py` redraws them from the SVG.
 `sign.sh` uses a Developer ID when the secrets below are set, otherwise
 an ad-hoc signature.
 
