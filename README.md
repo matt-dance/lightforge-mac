@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/banner.png" alt="Lightforge" width="640">
+<img src="docs/banner.png" alt="Lightforge for macOS" width="640">
 
 **A native macOS launcher for World of Warcraft on Apple Silicon.**
 

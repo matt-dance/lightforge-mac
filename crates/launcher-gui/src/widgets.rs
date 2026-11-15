@@ -95,7 +95,8 @@ pub(crate) const MENU_GLYPH: f32 = 16.0;
 pub(crate) const OUTBOUND_GLYPH: f32 = 8.0;
 
 /// How tall the wordmark is drawn in the top bar, above [`theme::TITLE`] so
-/// the hammer keeps its detail.
+/// the hammer keeps its detail. The macOS lockup (mark + "for macOS" pill)
+/// is the same height as the original mark, so this stays 28.
 pub(crate) const WORDMARK_HEIGHT: f32 = 28.0;
 
 /// The navigation tabs' type, small beside the wordmark; air ([`TAB_GAP`])
@@ -111,8 +112,8 @@ pub(crate) const TAB_GAP: f32 = theme::LG;
 /// Extra air between groups in the navigation row: wordmark, arrows, pages.
 pub(crate) const GROUP_GAP: f32 = theme::XS;
 
-/// The wordmark's width over its height, fixed by the art.
-pub(crate) const WORDMARK_ASPECT: f32 = 563.0 / 72.0;
+/// The wordmark's width over its height, fixed by the art (mark + "for macOS" pill).
+pub(crate) const WORDMARK_ASPECT: f32 = 735.0 / 72.0;
 
 /// The wordmark as drawn, from its height and the artwork's aspect.
 pub(crate) const WORDMARK_WIDTH: f32 = WORDMARK_HEIGHT * WORDMARK_ASPECT;

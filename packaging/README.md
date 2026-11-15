@@ -9,6 +9,7 @@ packaging/
 ├── pro.tuxcore.Lightforge.desktop        the menu entry
 ├── pro.tuxcore.Lightforge.metainfo.xml   AppStream, for software centres
 ├── icons/hicolor/…                       16px → 512px, plus the SVG
+├── brand/                                macOS lockup sources (`compose.py`)
 ├── macos/                                .app bundle, Info.plist, DMG scripts
 ├── appimage/AppRun                       the AppImage's entry: GUI, or `cli …`
 ├── installer/
