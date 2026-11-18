@@ -2468,7 +2468,7 @@ dependencies = [
 
 [[package]]
 name = "lightforge-cli"
-version = "1.0.0-beta.12"
+version = "1.0.0-beta.13"
 dependencies = [
  "anyhow",
  "clap",
@@ -2481,7 +2481,7 @@ dependencies = [
 
 [[package]]
 name = "lightforge-core"
-version = "1.0.0-beta.12"
+version = "1.0.0-beta.13"
 dependencies = [
  "blte",
  "directories",
@@ -2512,7 +2512,7 @@ dependencies = [
 
 [[package]]
 name = "lightforge-gui"
-version = "1.0.0-beta.12"
+version = "1.0.0-beta.13"
 dependencies = [
  "ashpd 0.12.3",
  "base64",
